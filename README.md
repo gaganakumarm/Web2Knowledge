@@ -4,6 +4,7 @@ Web2Knowledge is a lightweight Node.js and Express app that turns a public URL o
 
 The app supports direct URL scraping, topic-based web research, optional Agentic Search, local keyword search, and downloadable JSON export for RAG or AI dataset workflows.
 
+## Public Link: rag and ai agent dataset generation
 ---
 
 ## What It Does
