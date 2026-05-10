@@ -1,199 +1,211 @@
-# Web2Knowledge — Ideation & Concept Development
+# Web2Knowledge - Ideation and Concept Development
 
 ## Project Context
 
-Web2Knowledge is designed as a universal web-to-knowledge pipeline focused on transforming public web content into structured, searchable, AI-ready knowledge systems using Anakin APIs.
+Web2Knowledge is an AI research dataset builder that converts public URLs and open-ended topics into searchable, AI-ready knowledge chunks.
 
-The project emphasizes:
+The project started as a universal web-to-knowledge pipeline and evolved into a demo-ready research product with three practical modes:
 
-* real-world web intelligence workflows
-* scalable data extraction pipelines
-* AI-ready content processing
-* structured Markdown and JSON generation
-* searchable knowledge retrieval systems
+- Direct URL scraping.
+- Limited site crawling.
+- Standard topic search.
+- Deep Research using Agentic Search.
 
-The architecture and workflow are intentionally optimized for rapid execution, extensibility, and practical deployment scenarios.
-
----
-
-# Initial Concept Exploration
-
-Multiple solution directions were evaluated during the ideation phase, including:
-
-* price intelligence systems
-* job aggregation platforms
-* SEO intelligence tools
-* content aggregation systems
-* AI dataset generation workflows
-
-After evaluating feasibility, scalability, technical complexity, API alignment, and real-world applicability, the universal web-to-knowledge pipeline approach was selected.
+The goal is to make public web knowledge usable for AI assistants, RAG systems, research workflows, and developer tooling without adding heavy infrastructure.
 
 ---
 
-# Why Web2Knowledge Was Chosen
+## Problem
 
-Web2Knowledge was selected because it strongly aligns with:
+Developers, researchers, and AI builders often need to turn public web content into structured datasets. The manual workflow is slow:
 
-* modern AI and RAG workflows
-* structured web intelligence systems
-* scalable knowledge retrieval architectures
-* automated data extraction pipelines
+- Find relevant sources.
+- Open each page.
+- Copy useful content.
+- Remove noise.
+- Split text into chunks.
+- Preserve source links.
+- Export to JSON or a RAG pipeline.
 
-The project demonstrates:
-
-* crawling and URL discovery
-* AI-powered web scraping
-* Markdown extraction
-* structured JSON generation
-* searchable chunk-based retrieval systems
-
-while remaining lightweight, modular, and production-oriented.
+Documentation sites, blogs, and public articles are useful, but their content is scattered across pages and stored in noisy HTML.
 
 ---
 
-# Problem Validation
+## Selected Solution
 
-Developers, researchers, AI engineers, and technical teams frequently rely on:
-
-* documentation websites
-* technical blogs
-* public knowledge repositories
-* developer portals
-* research sources
-
-However:
-
-* information is fragmented across multiple pages
-* websites contain noisy and inconsistent HTML structures
-* extracting AI-ready datasets manually is inefficient
-* preprocessing content for RAG systems is time-consuming
-
-This creates friction when building:
-
-* AI assistants
-* RAG pipelines
-* semantic search systems
-* intelligent research workflows
-* developer knowledge systems
-
----
-
-# Proposed Solution
-
-Web2Knowledge converts any public website into a structured, searchable knowledge base through an automated extraction and processing pipeline powered by Anakin APIs.
+Web2Knowledge solves this by combining Anakin APIs with a small Node.js processing layer.
 
 The system:
 
-1. discovers relevant pages
-2. extracts clean Markdown and structured JSON
-3. processes content into searchable chunks
-4. enables fast retrieval and knowledge exploration
-
-The result is an AI-ready web intelligence pipeline capable of transforming unstructured web content into usable knowledge systems.
-
----
-
-# Core Innovation
-
-Traditional scrapers primarily extract raw HTML or unstructured page data.
-
-Web2Knowledge extends beyond traditional scraping by focusing on:
-
-* AI-ready Markdown extraction
-* structured metadata generation
-* chunk-based content indexing
-* searchable retrieval workflows
-* scalable knowledge processing pipelines
-
-The platform transforms messy web content into structured, reusable knowledge assets.
+1. Accepts either a direct URL or a topic.
+2. Uses Anakin Search or Agentic Search to discover sources for topics.
+3. Uses Anakin URL Scraper for direct URL extraction and optional source enrichment.
+4. Uses Anakin Crawl for optional limited multi-page extraction.
+5. Converts content into normalized chunks with generated JSON metadata when available.
+6. Stores chunks in memory for fast local search.
+7. Exports the current knowledge base as downloadable JSON.
 
 ---
 
-# Anakin Product Integration
+## Why This Direction
 
-The system integrates multiple components from the Anakin ecosystem.
+Other explored ideas included:
+
+- Price intelligence.
+- Job aggregation.
+- SEO research.
+- Content monitoring.
+- AI dataset generation.
+
+Web2Knowledge was chosen because it demonstrates a broad, reusable workflow:
+
+- Research discovery.
+- Web extraction.
+- AI-ready cleaning.
+- Searchable chunking.
+- Dataset export.
+
+This makes the product useful beyond one narrow domain.
+
+---
+
+## Core Product Idea
+
+The product should feel like a simple AI research workbench:
+
+- Paste a URL for direct extraction.
+- Type a topic for web research.
+- Toggle Deep Research when a richer summary and citations are needed.
+- Search the generated knowledge base.
+- Download the dataset.
+
+The product is intentionally lightweight: no database, no auth, no React, and no vector store in the MVP.
+
+```mermaid
+mindmap
+  root((Web2Knowledge))
+    URL Research
+      Direct page scraping
+      Async scraper polling
+      Markdown extraction
+    Site Crawl
+      Multi-page sample
+      Async crawl polling
+      Broader source coverage
+    Topic Research
+      Standard Search
+      Valid source discovery
+      Fast snippet chunks
+    Deep Research
+      Agentic Search
+      Research summaries
+      Citations
+      Standard fallback
+    Dataset Output
+      Searchable chunks
+      Source links
+      Downloadable JSON
+```
+
+---
+
+## Anakin Integration Strategy
 
 ## URL Scraper
 
-* single and batch URL scraping
-* Markdown extraction
-* structured JSON generation
-* AI-powered extraction workflows
+Used for direct page extraction.
+
+Important behavior:
+
+- The scraper returns async jobs.
+- The backend must poll `GET /url-scraper/{jobId}` until completion.
+- The app validates URLs before sending them to the scraper.
+- `generatedJson` metadata is preserved on exported chunks when available.
+
+## Crawl
+
+Used for optional multi-page URL extraction.
+
+Important behavior:
+
+- The app submits a crawl job to Anakin.
+- The backend polls the crawl job until completion.
+- Crawl is limited in the MVP so demos remain fast.
 
 ## Search API
 
-* intelligent source discovery
-* topic-based web retrieval
-* relevant page identification
+Used for Standard Topic Search.
 
-## Crawl / Discovery Workflows
+Important behavior:
 
-* multi-page discovery
-* automated page collection
-* scalable crawling workflows
+- The API expects a prompt-like query payload.
+- Search results may be nested, so the backend recursively extracts valid URLs.
+- Topic mode builds fast initial chunks from search titles, snippets, and source links.
 
-## AI Extraction
+## Agentic Search
 
-* titles
-* summaries
-* headings
-* metadata generation
+Used for optional Deep Research mode.
 
----
+Important behavior:
 
-# Real-World Applications
-
-Web2Knowledge can support:
-
-* AI & RAG knowledge systems
-* developer documentation search
-* AI-ready dataset generation
-* research aggregation pipelines
-* internal knowledge retrieval systems
-* automated technical research workflows
+- The app calls Agentic Search only when selected.
+- It extracts source URLs, citations, and a research summary when available.
+- If Agentic Search fails, the app falls back to Standard Search.
 
 ---
 
-# Expected Impact
+## MVP Product Decisions
 
-The platform significantly reduces the effort required to:
+The MVP prioritizes speed and demo reliability.
 
-* scrape websites
-* clean and structure content
-* preprocess AI-ready datasets
-* build searchable knowledge systems
+Key decisions:
 
-It enables developers and organizations to rapidly transform public web content into structured, searchable intelligence pipelines.
+- Store chunks in memory.
+- Use keyword search instead of vector search.
+- Limit topic scraping to avoid long waits.
+- Seed topic knowledge bases from search results immediately.
+- Skip slow topic source scrapes instead of failing the entire build.
+- Keep URL mode as the full scrape path.
+- Add optional Crawl mode for broader URL coverage when judges want to see crawling.
 
----
-
-# Scalability Potential
-
-Future scalable extensions include:
-
-* vector embeddings
-* semantic search
-* AI chatbot integration
-* LangChain / LlamaIndex pipelines
-* scheduled crawling systems
-* multi-user SaaS infrastructure
-* multi-source research agents
-
----
-
-# Evaluation Alignment
-
-Web2Knowledge demonstrates strong alignment across:
-
-* technical execution
-* structured web extraction
-* AI-ready data processing
-* scalable architecture design
-* real-world applicability
-* intelligent retrieval workflows
+```mermaid
+flowchart LR
+  A[Demo reliability] --> B[Seed topic chunks from search results]
+  A --> C[Scrape only top topic source]
+  A --> D[Skip slow topic scrapes]
+  A --> E[Fallback from Agentic to Standard Search]
+  B --> F[Fast searchable KB]
+  C --> F
+  D --> F
+  E --> F
+```
 
 ---
 
-# Concept Summary
+## User Value
 
-Web2Knowledge is designed as a scalable, AI-focused web intelligence system that transforms unstructured public web content into searchable, structured knowledge using Anakin’s scraping, crawling, search, and AI extraction capabilities.
+Web2Knowledge helps users:
+
+- Build AI-ready datasets quickly.
+- Research topics without manually opening multiple sources.
+- Preserve source URLs for traceability.
+- Search extracted content locally.
+- Export structured JSON for downstream AI workflows.
+
+---
+
+## Future Opportunities
+
+- Semantic search with embeddings.
+- RAG chatbot over generated chunks.
+- Persistent project history.
+- Source scoring and deduplication.
+- Scheduled refreshes for changing documentation.
+- Export templates for LangChain and LlamaIndex.
+- Vector database integrations.
+
+---
+
+## Concept Summary
+
+Web2Knowledge turns messy public web content into structured, searchable, exportable knowledge. It uses Anakin for discovery and extraction while keeping the app architecture simple enough to understand, demo, and extend.

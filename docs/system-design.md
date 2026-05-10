@@ -1,355 +1,414 @@
-# Web2Knowledge — System Design
+# Web2Knowledge - System Design
 
 ## System Overview
 
-Web2Knowledge is designed as a lightweight, modular, AI-ready web intelligence pipeline that converts public websites into structured, searchable knowledge bases using Anakin APIs and a Node.js processing architecture.
+Web2Knowledge is a lightweight Express application that converts public web sources into an in-memory, searchable, downloadable knowledge base.
 
-The system focuses on:
+The architecture intentionally stays simple:
 
-* scalable content extraction
-* AI-ready Markdown and JSON generation
-* chunk-based knowledge processing
-* searchable retrieval workflows
-* rapid web-to-knowledge transformation
-
-The architecture is intentionally designed to remain simple, extensible, and efficient while supporting future AI and semantic search integrations.
-
----
-
-# High-Level Architecture
-
-<p align="center">
-  <img src="../diagrams/02_system_architecture.png" width="850"/>
-</p>
+- Express backend.
+- Plain HTML frontend.
+- Tailwind CSS.
+- Vanilla JavaScript.
+- In-memory chunk store.
+- Anakin APIs for search, agentic research, and URL scraping.
+- Optional Anakin Crawl for limited multi-page extraction.
 
 ---
 
-# Core System Components
+## High-Level Architecture
 
-## 1. Frontend Interface
+```mermaid
+flowchart TD
+  UI[Browser UI] --> API[Express API]
+  API --> Build[POST /api/build]
+  API --> Topic[POST /api/topic-build]
+  API --> Search[GET /api/search]
+  API --> Export[GET /api/export]
 
-The frontend provides:
+  Build --> UrlCheck{Valid http/https URL?}
+  UrlCheck -->|Yes + scrape mode| Scraper[Anakin URL Scraper]
+  UrlCheck -->|Yes + crawl mode| Crawl[Anakin Crawl]
+  UrlCheck -->|No| Topic
 
-* website/topic input
-* knowledge base generation controls
-* search functionality
-* results visualization
-* export workflows
+  Topic --> Mode{Research Mode}
+  Mode -->|Standard| SearchAPI[Anakin Search API]
+  Mode -->|Agentic| AgenticAPI[Anakin Agentic Search API]
+  AgenticAPI -->|Fallback when needed| SearchAPI
 
-### Technologies
-
-* HTML
-* Tailwind CSS
-* Vanilla JavaScript
-
-### Responsibilities
-
-* collect user input
-* trigger backend API calls
-* display progress and results
-* provide searchable interaction
-
----
-
-## 2. Backend API Layer
-
-The backend is built using Node.js and Express.js.
-
-### Responsibilities
-
-* receive frontend requests
-* manage scraping workflows
-* process extracted content
-* handle chunking logic
-* serve searchable data
-
-### Core Endpoints
-
-#### `/scrape`
-
-Triggers:
-
-* Search API
-* URL Scraper
-* crawling workflows
-
-#### `/search`
-
-Searches generated knowledge chunks.
-
-#### `/export`
-
-Exports structured JSON datasets.
-
----
-
-## 3. Anakin Integration Layer
-
-The Anakin integration layer acts as the core extraction engine.
-
-### URL Scraper
-
-Used for:
-
-* single URL scraping
-* batch scraping
-* Markdown extraction
-* structured JSON generation
-
-### Search API
-
-Used for:
-
-* intelligent source discovery
-* topic-based retrieval
-* relevant URL generation
-
-### Crawl / Discovery Workflows
-
-Used for:
-
-* multi-page discovery
-* automated documentation traversal
-
-### AI Extraction
-
-Used for:
-
-* metadata extraction
-* summaries
-* titles
-* headings
-* structured fields
-
----
-
-# Data Processing Pipeline
-
-<p align="center">
-  <img src="../diagrams/01_processing_pipeline.png" width="850"/>
-</p>
-
----
-
-# Content Processing Workflow
-
-## Step 1 — Input Collection
-
-User provides:
-
-* website URL
-  or
-* topic/query
-
-Example:
-
-```text
-https://nextjs.org/docs
+  Scraper --> Poll[Poll async scrape job]
+  Crawl --> CrawlPoll[Poll async crawl job]
+  SearchAPI --> Sources[Normalize valid source URLs]
+  AgenticAPI --> Sources
+  Sources --> Seed[Seed chunks from summaries/snippets]
+  Sources --> OptionalScrape[Optional top-source scrape]
+  OptionalScrape --> Poll
+  Poll --> Chunk[Chunk content]
+  CrawlPoll --> Chunk
+  Seed --> KB[(In-memory Knowledge Base)]
+  Chunk --> KB
+  Search --> KB
+  Export --> Download[Download JSON dataset]
 ```
 
 ---
 
-## Step 2 — Source Discovery
+## Runtime Components
 
-If a topic is provided:
+## 1. Frontend
 
-* Search API discovers relevant pages.
+File:
 
-If a direct URL is provided:
+```text
+public/index.html
+```
 
-* scraping begins immediately.
+Responsibilities:
+
+- Accept URL or topic input.
+- Let the user select URL or Topic Search.
+- Let the user select Standard Search or Deep Research.
+- Show pipeline status.
+- Show discovered sources.
+- Show research summaries when available.
+- Search generated chunks.
+- Download the current dataset.
+
+Frontend technologies:
+
+- HTML
+- Tailwind CSS CDN
+- Vanilla JavaScript
 
 ---
 
-## Step 3 — Web Extraction
+## 2. Backend
 
-Anakin URL Scraper extracts:
+File:
 
-* Markdown
-* structured JSON
-* metadata
-* summaries
-* headings
+```text
+server.js
+```
 
-The system supports:
+Responsibilities:
 
-* single-page scraping
-* batch scraping workflows
+- Serve the static frontend.
+- Route build requests.
+- Validate URLs.
+- Call Anakin Search, Agentic Search, and URL Scraper.
+- Poll async scrape jobs through the utility layer.
+- Chunk extracted or discovered content.
+- Store chunks in memory.
+- Serve search and export APIs.
 
 ---
 
-## Step 4 — Chunking Engine
+## 3. Anakin Utility Layer
 
-Extracted Markdown is processed into smaller searchable chunks.
+File:
 
-Chunking logic:
+```text
+utils/anakin.js
+```
 
-* split by headings
-* split by sections
-* maintain metadata association
+Responsibilities:
 
-Each chunk contains:
+- Add Anakin API headers.
+- Validate API key presence.
+- Call URL Scraper.
+- Call Crawl for small multi-page URL extraction.
+- Poll async URL Scraper jobs.
+- Poll async Crawl jobs.
+- Call Standard Search.
+- Call Agentic Search.
+- Normalize scrape responses.
+- Return clear errors for auth, invalid URL, and timeouts.
+
+---
+
+## API Endpoints
+
+## `GET /health`
+
+Returns basic service status.
+
+Response:
 
 ```json
 {
-  "title": "",
-  "source": "",
-  "content": "",
-  "chunkIndex": 0
+  "status": "ok",
+  "project": "Web2Knowledge"
 }
 ```
 
 ---
 
-## Step 5 — Knowledge Base Generation
+## `POST /api/build`
 
-Processed chunks are stored in:
+Builds the knowledge base from direct URL input.
 
-* in-memory arrays
-  or
-* lightweight JSON storage
+Behavior:
 
-This enables:
+- If input is a valid `http` or `https` URL, use URL scraping.
+- If input is plain text, auto-route to topic research.
 
-* rapid retrieval
-* low-latency search
-* lightweight execution
+Payload:
 
----
-
-## Step 6 — Search & Retrieval
-
-The frontend search engine:
-
-* filters chunks
-* retrieves relevant matches
-* displays source references
-
-The MVP uses:
-
-* keyword-based retrieval
-* lightweight search logic
-
----
-
-# MVP System Flow
-
-<p align="center">
-  <img src="../diagrams/03_mvp_user_flow.png" width="850"/>
-</p>
-
----
-
-# Search Workflow
-
-```text
-User Search Query
-        ↓
-Search Endpoint
-        ↓
-Chunk Matching
-        ↓
-Relevance Filtering
-        ↓
-Search Results
-        ↓
-Source References
+```json
+{
+  "input": "https://tailwindcss.com/docs",
+  "mode": "url",
+  "researchMode": "standard",
+  "extractionMode": "crawl"
+}
 ```
 
 ---
 
-# Storage Design
+## `POST /api/topic-build`
 
-## MVP Storage
+Builds the knowledge base from a topic.
 
-The MVP uses:
+Behavior:
 
-* in-memory storage
-* lightweight JSON persistence
+- `researchMode: "standard"` uses Anakin Search.
+- `researchMode: "agentic"` tries Anakin Agentic Search first.
+- Agentic failures fall back to Standard Search.
+- Valid source URLs are extracted and filtered.
+- Topic chunks are seeded from search summaries/snippets.
+- The top source may be scraped for richer content with a short timeout.
 
-This approach:
+Payload:
 
-* minimizes infrastructure overhead
-* improves development speed
-* supports rapid iteration
-
----
-
-# Scalability Design
-
-Future scalable architecture extensions include:
-
-## Semantic Search
-
-* vector embeddings
-* similarity retrieval
-
-## Vector Databases
-
-* Pinecone
-* Supabase pgvector
-* LanceDB
-
-## AI Integrations
-
-* LangChain
-* LlamaIndex
-* RAG chat systems
-
-## Scheduled Crawling
-
-* recurring refresh workflows
-* automated updates
-
-## Multi-Source Intelligence
-
-* aggregated research pipelines
-* cross-site knowledge graphs
+```json
+{
+  "input": "Next.js routing",
+  "mode": "topic",
+  "researchMode": "agentic"
+}
+```
 
 ---
 
-# Error Handling Strategy
+## `GET /api/search`
 
-The system includes:
+Searches the current in-memory knowledge base.
 
-* invalid URL validation
-* scrape failure handling
-* fallback extraction workflows
-* empty-result handling
-* request timeout protection
+Example:
 
----
+```text
+/api/search?q=tailwind
+```
 
-# Security & Reliability
+Search behavior:
 
-The architecture leverages:
-
-* Anakin proxy routing
-* anti-detection workflows
-* structured extraction APIs
-* asynchronous scraping workflows
-
-This improves:
-
-* scraping reliability
-* extraction consistency
-* scalability across public websites
+- Keyword matching.
+- Checks title, content, and source URL.
+- Returns up to 20 matching chunks.
 
 ---
 
-# Design Goals
+## `GET /api/export`
 
-The system is designed to achieve:
+Downloads the current knowledge base as JSON.
 
-* fast execution
-* modular architecture
-* AI-ready data generation
-* lightweight infrastructure
-* scalable extensibility
-* production-oriented workflows
+Headers:
+
+```text
+Content-Type: application/json
+Content-Disposition: attachment; filename="web2knowledge-dataset.json"
+```
+
+Structure:
+
+```json
+{
+  "project": "Web2Knowledge",
+  "generatedAt": "2026-05-10T00:00:00.000Z",
+  "totalChunks": 0,
+  "data": []
+}
+```
 
 ---
 
-# System Summary
+## Data Flow
 
-Web2Knowledge combines Anakin’s scraping, search, crawling, and AI extraction capabilities with a lightweight Node.js processing architecture to create a scalable web intelligence pipeline capable of transforming unstructured public web content into searchable, structured, AI-ready knowledge systems.
+## URL Mode
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant UI as Browser UI
+  participant API as Express API
+  participant A as Anakin URL Scraper
+  participant C as Anakin Crawl
+  participant KB as In-memory KB
+
+  U->>UI: Enter https URL
+  UI->>API: POST /api/build
+  API->>API: Validate http/https URL
+  alt Single URL Scrape
+  API->>A: POST /v1/url-scraper
+  A-->>API: jobId + pending status
+  loop Until completed
+    API->>A: GET /v1/url-scraper/{jobId}
+    A-->>API: job status/result
+  end
+  else Site Crawl
+    API->>C: POST /v1/crawl
+    C-->>API: jobId + pending status
+    loop Until completed
+      API->>C: GET /v1/crawl/{jobId}
+      C-->>API: crawl status/results
+    end
+  end
+  API->>API: Normalize Markdown
+  API->>API: Chunk content
+  API->>KB: Store chunks
+  API-->>UI: Build summary
+```
+
+---
+
+## Standard Topic Search
+
+```mermaid
+flowchart TD
+  A[User enters topic] --> B[POST /api/topic-build]
+  B --> C[Anakin Search API]
+  C --> D[Recursively extract source candidates]
+  D --> E[Filter valid http/https URLs]
+  E --> F[Limit to top sources]
+  F --> G[Seed chunks from titles and snippets]
+  F --> H[Optional short scrape of top source]
+  H --> I[Append richer chunks when available]
+  G --> J[(Unified Knowledge Base)]
+  I --> J
+```
+
+---
+
+## Deep Research Mode
+
+```mermaid
+flowchart TD
+  A[User selects Deep Research] --> B[POST /api/topic-build]
+  B --> C[Anakin Agentic Search API]
+  C -->|Success| D[Extract summary, citations, and URLs]
+  C -->|Failure or no valid URLs| E[Fallback to Standard Search]
+  E --> F[Extract valid source URLs]
+  D --> G[Seed summary and source chunks]
+  F --> G
+  G --> H[Optional short scrape of top source]
+  H --> I[(Unified Knowledge Base)]
+  G --> I
+```
+
+---
+
+## Chunk Model
+
+Each chunk follows this structure:
+
+```json
+{
+  "id": "string",
+  "title": "string",
+  "source": "string",
+  "content": "string",
+  "chunkIndex": 0,
+  "generatedJson": {}
+}
+```
+
+The MVP stores these chunks in:
+
+```js
+let knowledgeBase = [];
+```
+
+---
+
+## Error Handling
+
+The system handles:
+
+- Missing Anakin API key.
+- Invalid URL input.
+- Topic text accidentally sent through URL mode.
+- Empty Anakin Search results.
+- Agentic Search failure.
+- Slow topic source scraping.
+- Async scrape job timeout.
+- Async crawl job timeout.
+
+Important design choices:
+
+- URL mode is strict because the user expects direct scraping.
+- Topic mode is resilient because discovered web pages can be slow or noisy.
+- Agentic Search has fallback to Standard Search.
+- Topic builds can succeed even if some discovered sources fail.
+
+---
+
+## Test Coverage
+
+The project includes a lightweight Node test suite.
+
+Run:
+
+```powershell
+npm test
+```
+
+The tests avoid live Anakin calls and verify:
+
+- Express health route.
+- Export download headers and dataset shape.
+- Request validation before Anakin calls.
+- URL validation.
+- Chunk generation.
+- Recursive source extraction and filtering.
+- Research summary normalization.
+
+---
+
+## Performance Strategy
+
+To keep demos fast:
+
+- Topic mode limits discovered URLs.
+- Topic mode seeds chunks from search results immediately.
+- Topic mode only attempts a short scrape of the top source.
+- Slow topic scrapes are skipped.
+- Direct URL mode keeps the full scrape behavior.
+- Site Crawl mode is available when broader extraction matters more than speed.
+
+---
+
+## Security Notes
+
+- API keys are loaded from `.env`.
+- `.env` should not be committed.
+- User input is escaped before rendering in the frontend.
+- URL validation prevents non-HTTP schemes from reaching the scraper.
+
+---
+
+## Future System Extensions
+
+- Persistent storage.
+- Project history.
+- Embeddings and semantic search.
+- RAG chat over generated datasets.
+- Background scrape queues.
+- Source quality scoring.
+- Multi-source deduplication.
+- Scheduled refresh jobs.
+
+---
+
+## System Summary
+
+Web2Knowledge uses Anakin APIs as the research and extraction engine, while the local Express app handles validation, fallback logic, chunking, search, and dataset export. The result is a simple but extensible AI research product that can transform URLs or topics into searchable knowledge in a demo-friendly workflow.
