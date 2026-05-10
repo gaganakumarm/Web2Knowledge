@@ -283,6 +283,7 @@ async function searchWeb(query) {
 
 async function agenticSearch(query) {
   return postJson("/agentic-search", {
+    prompt: query,
     query,
     depth: "comprehensive",
     max_sources: 5,
