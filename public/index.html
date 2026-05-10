@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web2Knowledge</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-white min-h-screen">
+  <main class="max-w-5xl mx-auto px-6 py-10">
+    <section class="mb-8">
+      <p class="text-sm text-cyan-400 font-semibold">Built with Anakin APIs</p>
+      <h1 class="text-4xl font-bold mt-2">Web2Knowledge</h1>
+      <p class="text-slate-300 mt-3">
+        Convert any public website or topic into a searchable AI-ready knowledge base.
+      </p>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+      <label class="block text-sm mb-2 text-slate-300">Input URL or Topic</label>
+      <input
+        id="input"
+        class="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white"
+        placeholder="https://tailwindcss.com/docs or Next.js routing"
+      />
+
+      <div class="flex gap-4 mt-4">
+        <label>
+          <input type="radio" name="mode" value="url" checked />
+          URL
+        </label>
+        <label>
+          <input type="radio" name="mode" value="topic" />
+          Topic Search
+        </label>
+      </div>
+
+      <button
+        onclick="buildKB()"
+        class="mt-5 bg-cyan-500 hover:bg-cyan-400 text-black font-semibold px-5 py-3 rounded-xl"
+      >
+        Build Knowledge Base
+      </button>
+
+      <p id="status" class="mt-4 text-sm text-slate-300"></p>
+    </section>
+
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+      <div class="flex items-center justify-between gap-4">
+        <input
+          id="search"
+          oninput="searchKB()"
+          class="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white"
+          placeholder="Search inside generated knowledge base..."
+        />
+
+        <a
+          href="/api/export"
+          target="_blank"
+          class="bg-slate-700 hover:bg-slate-600 px-4 py-3 rounded-xl whitespace-nowrap"
+        >
+          Export JSON
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <div id="results" class="space-y-4"></div>
+    </section>
+  </main>
+
+  <script>
+    async function buildKB() {
+      const input = document.getElementById("input").value.trim();
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+      const status = document.getElementById("status");
+
+      if (!input) {
+        status.textContent = "Please enter a URL or topic.";
+        return;
+      }
+
+      status.textContent = "Building knowledge base using Anakin...";
+      document.getElementById("results").innerHTML = "";
+
+      try {
+        const res = await fetch("/api/build", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input, mode }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          status.textContent = "Error: " + (data.error || "Build failed");
+          return;
+        }
+
+        status.textContent = `Done. Scraped ${data.urls.length} source(s), created ${data.totalChunks} chunks.`;
+        await searchKB();
+      } catch (err) {
+        status.textContent = "Request failed. Check server terminal.";
+      }
+    }
+
+    async function searchKB() {
+      const q = document.getElementById("search").value.trim();
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+
+      const results = data.results || [];
+      const container = document.getElementById("results");
+
+      if (results.length === 0) {
+        container.innerHTML = `<p class="text-slate-400">No results yet.</p>`;
+        return;
+      }
+
+      container.innerHTML = results
+        .map(
+          (item) => `
+          <article class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <h3 class="text-lg font-bold text-cyan-300">${escapeHtml(item.title)}</h3>
+            <a href="${item.source}" target="_blank" class="text-xs text-slate-400 underline">
+              ${escapeHtml(item.source)}
+            </a>
+            <p class="text-slate-300 mt-3 text-sm leading-6">
+              ${escapeHtml(item.content.slice(0, 650))}...
+            </p>
+          </article>
+        `
+        )
+        .join("");
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+  </script>
+</body>
+</html>
