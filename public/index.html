@@ -170,8 +170,11 @@
       setBuilding(true);
       clearSources();
       clearResearchSummary();
+      appState.hasBuilt = false;
       setStatus(getLoadingMessage(isTopicMode, researchMode), "loading");
       document.getElementById("results").innerHTML = "";
+      document.getElementById("search").value = "";
+      updateResultCount(0, "");
       updateStats({ sources: 0, chunks: 0, results: 0 });
 
       if (isTopicMode) {

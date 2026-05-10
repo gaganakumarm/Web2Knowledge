@@ -156,6 +156,10 @@ function extractResearchSummary(researchResult) {
   );
 }
 
+function clearKnowledgeBase() {
+  knowledgeBase = [];
+}
+
 function extractGeneratedJson(scrapeResult) {
   return (
     scrapeResult.raw?.generatedJson ||
@@ -327,7 +331,17 @@ function seedKnowledgeBaseFromSources(sources, topic, researchSummary = "") {
 }
 
 async function buildStandardTopicKnowledgeBase(query) {
-  const searchResult = await searchWeb(query);
+  let searchResult;
+
+  try {
+    searchResult = await searchWeb(query);
+  } catch (error) {
+    return runAgenticTopicKnowledgeBase(query, {
+      fallbackReason: `Standard Search failed: ${error.message}`,
+      fromFallback: true,
+    });
+  }
+
   const discoveredSources = extractSearchResults(searchResult);
   const urls = discoveredSources.map((item) => item.url);
 
@@ -361,11 +375,19 @@ async function buildStandardTopicKnowledgeBase(query) {
 }
 
 async function buildAgenticTopicKnowledgeBase(query) {
+  return runAgenticTopicKnowledgeBase(query, {});
+}
+
+async function runAgenticTopicKnowledgeBase(query, options) {
   let researchResult;
 
   try {
     researchResult = await agenticSearch(query);
   } catch (error) {
+    if (options.fromFallback) {
+      throw error;
+    }
+
     const fallback = await buildStandardTopicKnowledgeBase(query);
     return {
       ...fallback,
@@ -379,6 +401,12 @@ async function buildAgenticTopicKnowledgeBase(query) {
   const researchSummary = extractResearchSummary(researchResult);
 
   if (urls.length === 0) {
+    if (options.fromFallback) {
+      const error = new Error("Agentic Search returned no valid source URLs.");
+      error.statusCode = 400;
+      throw error;
+    }
+
     const fallback = await buildStandardTopicKnowledgeBase(query);
     return {
       ...fallback,
@@ -406,7 +434,8 @@ async function buildAgenticTopicKnowledgeBase(query) {
     totalSourcesDiscovered: discoveredSources.length,
     failedSources: buildResult.failedSources,
     researchSummary,
-    agenticFallback: false,
+    agenticFallback: Boolean(options.fromFallback),
+    fallbackReason: options.fallbackReason,
   };
 }
 
@@ -428,6 +457,7 @@ app.get("/health", (req, res) => {
 app.post("/api/build", async (req, res) => {
   try {
     const { input, mode, researchMode, extractionMode } = req.body;
+    clearKnowledgeBase();
 
     if (!input) {
       return res.status(400).json({ error: "Input URL is required" });
@@ -488,6 +518,7 @@ app.post("/api/topic-build", async (req, res) => {
   try {
     const { input, topic, researchMode } = req.body;
     const query = input || topic;
+    clearKnowledgeBase();
 
     if (!query) {
       return res.status(400).json({ error: "Topic is required" });
