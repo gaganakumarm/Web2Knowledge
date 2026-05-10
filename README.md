@@ -1,4 +1,4 @@
-# Web2Knowledge - AI Research Dataset Builder
+<h1 align="center">Web2Knowledge - AI Research Dataset Builder</h1>
 
 Web2Knowledge is a lightweight Node.js and Express app that turns a public URL or research topic into a searchable, AI-ready knowledge base using Anakin APIs.
 
@@ -6,11 +6,9 @@ The app supports direct URL scraping, topic-based web research, optional Agentic
 
 --- 
 
-<p align="center">
-  <a href="https://web2knowledge.onrender.com/" target="_blank">
-    <img src="https://img.shields.io/badge/Live-Demo-success?style=for-the-badge" />
-  </a>
-</p>
+## Live Demo
+
+[Launch Web2Knowledge](https://web2knowledge.onrender.com/)
 ---
 
 ## What It Does
