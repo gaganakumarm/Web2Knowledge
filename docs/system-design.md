@@ -364,12 +364,17 @@ npm test
 
 The tests avoid live Anakin calls and verify:
 
+- Homepage route.
 - Express health route.
 - Export download headers and dataset shape.
+- Exported chunk metadata.
 - Request validation before Anakin calls.
+- Topic request validation.
+- Search endpoint behavior.
 - URL validation.
 - Chunk generation.
 - Recursive source extraction and filtering.
+- Citation extraction.
 - Research summary normalization.
 
 ---

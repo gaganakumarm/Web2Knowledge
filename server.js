@@ -160,6 +160,10 @@ function clearKnowledgeBase() {
   knowledgeBase = [];
 }
 
+function setKnowledgeBaseForTest(data) {
+  knowledgeBase = Array.isArray(data) ? data : [];
+}
+
 function extractGeneratedJson(scrapeResult) {
   return (
     scrapeResult.raw?.generatedJson ||
@@ -601,7 +605,9 @@ if (require.main === module) {
 module.exports = {
   app,
   chunkText,
+  clearKnowledgeBase,
   extractResearchSummary,
   extractSearchResults,
   isValidHttpUrl,
+  setKnowledgeBaseForTest,
 };

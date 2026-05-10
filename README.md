@@ -126,12 +126,17 @@ npm test
 
 The tests use Node's built-in test runner and do not call Anakin live. They cover:
 
+- Homepage route.
 - Health route.
 - Export download headers and JSON shape.
+- Exported chunk metadata.
 - Missing input validation.
+- Missing topic validation.
+- Search endpoint behavior.
 - URL validation.
 - Chunking.
 - Search-result normalization.
+- Citation extraction.
 - Research summary extraction.
 
 ---
