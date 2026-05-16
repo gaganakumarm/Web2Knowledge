@@ -10,60 +10,18 @@ The current architecture is intentionally lightweight but product-ready:
 - Static frontend served from `public/`.
 - Local CSS and vanilla JavaScript.
 - In-memory active dataset backed by SQLite persistence.
+- Project history with multiple saved datasets.
 - Anakin APIs for search, agentic research, scraping, and crawling.
 - Local URL fetch fallback for direct URL extraction.
 - Ranked local search and extractive ask flow.
+- Source and chunk deduplication.
+- Export presets for common RAG tools.
 
 ---
 
 ## High-Level Architecture
 
-```mermaid
-flowchart TD
-  UI[Browser UI] --> Static[Static files: index.html, styles.css, app.js]
-  UI --> API[Express API]
-  API --> Build[POST /api/build]
-  API --> Topic[POST /api/topic-build]
-  API --> Search[GET /api/search]
-  API --> Ask[POST /api/ask]
-  API --> Export[GET /api/export]
-  API --> Clear[DELETE /api/dataset]
-
-  Build --> UrlCheck{Valid http/https URL?}
-  UrlCheck -->|Yes + scrape| Scraper[Anakin URL Scraper]
-  UrlCheck -->|Yes + crawl| Crawl[Anakin Crawl]
-  UrlCheck -->|No| Topic
-
-  Scraper -->|Non-auth failure| LocalFetch[Local fetch fallback]
-  Scraper --> Poll[Poll scrape job]
-  Crawl --> CrawlPoll[Poll crawl job]
-
-  Topic --> Mode{Research mode}
-  Mode -->|Standard| SearchAPI[Anakin Search API]
-  Mode -->|Agentic| AgenticAPI[Anakin Agentic Search API]
-  AgenticAPI --> AgentPoll[Poll agentic job]
-  AgentPoll -->|Timeout/failure/no URLs| SearchAPI
-
-  SearchAPI --> Sources[Normalize valid URLs]
-  AgentPoll --> Sources
-  Sources --> Seed[Seed chunks from source metadata]
-  Sources --> OptionalScrape[Optional top-source scrape]
-  OptionalScrape --> Poll
-
-  Poll --> Normalize[Normalize extracted content]
-  CrawlPoll --> Normalize
-  LocalFetch --> Normalize
-  Normalize --> Chunk[Markdown-aware chunking]
-  Seed --> Store[(Active dataset)]
-  Chunk --> Store
-  Store --> SQLite[(SQLite data/web2knowledge.sqlite)]
-  SQLite --> Hydrate[Hydrate saved dataset on startup]
-  Hydrate --> Store
-  Search --> Store
-  Ask --> Store
-  Export --> Store
-  Clear --> Store
-```
+![Web2Knowledge high-level architecture](diagrams/web2knowledge_high_level_architecture.svg)
 
 ---
 
@@ -115,10 +73,13 @@ Responsibilities:
 - Chunk content by markdown-like structure.
 - Maintain the active in-memory dataset.
 - Persist chunks through the storage layer.
+- Create a new project for each build.
+- Activate saved projects into the current workspace.
 - Rank search results.
 - Build extractive answers with citations.
 - Guard against unrelated low-confidence ask responses.
 - Export and clear datasets.
+- Format exports for Web2Knowledge, LangChain, LlamaIndex, Pinecone, Supabase, and LanceDB.
 
 ---
 
@@ -159,10 +120,12 @@ utils/storage.js
 Responsibilities:
 
 - Create/open SQLite database.
+- Create/read/update project records.
 - Create the `chunks` table.
 - Load saved chunks at server startup.
 - Save the active dataset after mutations.
 - Clear chunks.
+- Activate saved projects.
 - Close the database during tests.
 
 Default database path:
@@ -260,6 +223,14 @@ Search behavior:
 - Adds boosts for exact query matches in title/content/source.
 - Returns up to 20 results.
 
+## `GET /api/projects`
+
+Lists saved projects and the active project.
+
+## `POST /api/projects/:id/activate`
+
+Activates a saved project and reloads its chunks into the in-memory active dataset.
+
 ## `POST /api/ask`
 
 Answers from the active dataset.
@@ -287,6 +258,14 @@ Downloads:
 web2knowledge-dataset.json
 ```
 
+Supports:
+
+- `format=langchain`
+- `format=llamaindex`
+- `format=pinecone`
+- `format=supabase`
+- `format=lancedb`
+
 ## `DELETE /api/dataset`
 
 Clears the active dataset from memory and SQLite.
@@ -297,64 +276,11 @@ Clears the active dataset from memory and SQLite.
 
 ## URL Mode
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant UI as Browser UI
-  participant API as Express API
-  participant A as Anakin URL Scraper/Crawl
-  participant F as Local Fetch Fallback
-  participant S as SQLite Storage
-
-  U->>UI: Enter public URL
-  UI->>API: POST /api/build
-  API->>API: Validate http/https URL
-  API->>A: Submit scrape/crawl request
-  alt Async job
-    loop Until completed or timeout
-      API->>A: Poll job endpoint
-      A-->>API: Job status/result
-    end
-  end
-  alt Non-auth scrape failure
-    API->>F: Fetch URL directly
-    F-->>API: HTML/text
-  end
-  API->>API: Normalize readable text
-  API->>API: Chunk by markdown structure
-  API->>S: Save chunks
-  API-->>UI: Build response
-```
-
-## Topic Mode
-
-```mermaid
-flowchart TD
-  A[Topic input] --> B{Research mode}
-  B -->|Standard| C[Anakin Search]
-  B -->|Agentic| D[Anakin Agentic Search]
-  D -->|Fallback| C
-  C --> E[Normalize sources]
-  D --> E
-  E --> F[Seed chunks from title/snippet/source]
-  E --> G[Scrape top source]
-  G --> H[Append extracted chunks]
-  F --> I[(SQLite-backed active dataset)]
-  H --> I
-```
+![Web2Knowledge URL mode sequence](diagrams/web2knowledge_url_mode_sequence.svg)
 
 ## Ask Flow
 
-```mermaid
-flowchart TD
-  A[Question] --> B[Rank chunks]
-  B --> C{Top score high enough?}
-  C -->|No| D[No matching context answer]
-  C -->|Yes| E[Split top chunks into sentences]
-  E --> F[Rank candidate sentences]
-  F --> G[Compose extractive answer]
-  G --> H[Return citations]
-```
+![Web2Knowledge ask flow](diagrams/web2knowledge_ask_flow.svg)
 
 ---
 
@@ -398,7 +324,7 @@ Run:
 npm.cmd test
 ```
 
-Current automated coverage: `23` tests.
+Current automated coverage: `26` tests.
 
 The suite verifies:
 
@@ -406,7 +332,9 @@ The suite verifies:
 - Health route.
 - Export route.
 - Dataset clear route.
+- Project history listing and activation.
 - SQLite persistence.
+- Export preset formatting.
 - Request validation.
 - Search behavior.
 - Ask behavior.
@@ -414,6 +342,7 @@ The suite verifies:
 - URL validation.
 - Markdown-aware chunking.
 - Search result normalization.
+- Canonical source deduplication.
 - Citation and summary extraction.
 
 ---

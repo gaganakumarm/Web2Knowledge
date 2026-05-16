@@ -287,7 +287,8 @@ fieldset {
 }
 
 .input,
-.textarea {
+.textarea,
+.select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -297,9 +298,21 @@ fieldset {
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
-.input {
+.input,
+.select {
   height: 44px;
   padding: 0 13px;
+}
+
+.badge.ready {
+  border-color: rgba(134, 239, 172, 0.32);
+  background: rgba(34, 197, 94, 0.10);
+  color: #bbf7d0;
+}
+
+.select {
+  min-width: 170px;
+  color: #ccfbf1;
 }
 
 .textarea {
@@ -325,6 +338,48 @@ fieldset {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 10px;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.project-item {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 12px;
+  color: #cbd5e1;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 140ms ease;
+}
+
+.project-item:hover {
+  border-color: rgba(45, 212, 191, 0.45);
+  transform: translateY(-1px);
+}
+
+.project-item.active {
+  border-color: rgba(45, 212, 191, 0.75);
+  background: rgba(20, 184, 166, 0.13);
+}
+
+.project-item strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.project-item span {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .button,

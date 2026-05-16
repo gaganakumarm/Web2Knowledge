@@ -5,16 +5,22 @@ require("dotenv").config();
 
 const { agenticSearch, crawlSite, scrapeUrl, searchWeb } = require("./utils/anakin");
 const {
+  activateProject,
   clearChunks,
   closeDatabaseForTest,
+  createProject,
+  getActiveProject,
+  listProjects,
   loadChunks,
   saveChunks,
+  updateProjectMetadata,
 } = require("./utils/storage");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 let knowledgeBase = loadChunks();
+let activeProject = getActiveProject();
 const TOPIC_SCRAPE_LIMIT = 1;
 const TOPIC_SCRAPE_TIMEOUT_MS = 12000;
 const SEARCH_STOPWORDS = new Set([
@@ -329,6 +335,104 @@ function buildExtractiveAnswer(question) {
   };
 }
 
+function getExportPayload(format = "web2knowledge") {
+  const project = getActiveProject();
+  const generatedAt = new Date().toISOString();
+  const safeFormat = String(format || "web2knowledge").toLowerCase();
+
+  if (safeFormat === "langchain") {
+    return {
+      filename: "web2knowledge-langchain.json",
+      body: knowledgeBase.map((chunk) => ({
+        pageContent: chunk.content,
+        metadata: {
+          id: chunk.id,
+          title: chunk.title,
+          source: chunk.source,
+          chunkIndex: chunk.chunkIndex,
+          projectId: chunk.projectId || project?.id || "",
+          generatedJson: chunk.generatedJson || null,
+        },
+      })),
+    };
+  }
+
+  if (safeFormat === "llamaindex") {
+    return {
+      filename: "web2knowledge-llamaindex.json",
+      body: knowledgeBase.map((chunk) => ({
+        id_: chunk.id,
+        text: chunk.content,
+        metadata: {
+          title: chunk.title,
+          source: chunk.source,
+          chunkIndex: chunk.chunkIndex,
+          projectId: chunk.projectId || project?.id || "",
+        },
+      })),
+    };
+  }
+
+  if (safeFormat === "pinecone") {
+    return {
+      filename: "web2knowledge-pinecone.json",
+      body: knowledgeBase.map((chunk) => ({
+        id: chunk.id,
+        metadata: {
+          text: chunk.content,
+          title: chunk.title,
+          source: chunk.source,
+          chunkIndex: chunk.chunkIndex,
+          projectId: chunk.projectId || project?.id || "",
+        },
+      })),
+    };
+  }
+
+  if (safeFormat === "supabase") {
+    return {
+      filename: "web2knowledge-supabase.json",
+      body: knowledgeBase.map((chunk) => ({
+        id: chunk.id,
+        project_id: chunk.projectId || project?.id || "",
+        title: chunk.title,
+        source: chunk.source,
+        content: chunk.content,
+        chunk_index: chunk.chunkIndex,
+        metadata: {
+          generatedJson: chunk.generatedJson || null,
+        },
+      })),
+    };
+  }
+
+  if (safeFormat === "lancedb" || safeFormat === "lance") {
+    return {
+      filename: "web2knowledge-lancedb.json",
+      body: knowledgeBase.map((chunk) => ({
+        id: chunk.id,
+        text: chunk.content,
+        title: chunk.title,
+        source: chunk.source,
+        chunk_index: chunk.chunkIndex,
+        project_id: chunk.projectId || project?.id || "",
+      })),
+    };
+  }
+
+  return {
+    filename: "web2knowledge-dataset.json",
+    body: {
+      project: "Web2Knowledge",
+      projectId: project?.id || "",
+      projectName: project?.name || "",
+      generatedAt,
+      totalChunks: knowledgeBase.length,
+      data: knowledgeBase,
+    },
+  };
+}
+
 function withTimeout(promise, ms, message) {
   return Promise.race([
     promise,
@@ -409,11 +513,42 @@ function extractSearchResults(searchResult) {
     }))
     .filter((item) => isValidHttpUrl(item.url))
     .filter((item) => {
-      if (seenUrls.has(item.url)) return false;
-      seenUrls.add(item.url);
+      const key = canonicalSourceUrl(item.url);
+      if (seenUrls.has(key)) return false;
+      seenUrls.add(key);
       return true;
     })
     .slice(0, 3);
+}
+
+function canonicalSourceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    parsed.searchParams.sort();
+    return parsed.toString().replace(/\/$/, "").toLowerCase();
+  } catch {
+    return String(url || "").trim().toLowerCase();
+  }
+}
+
+function normalizeDedupText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .trim();
+}
+
+function chunkExists(source, content) {
+  const sourceKey = canonicalSourceUrl(source);
+  const contentKey = normalizeDedupText(content);
+
+  return knowledgeBase.some(
+    (chunk) =>
+      canonicalSourceUrl(chunk.source) === sourceKey &&
+      normalizeDedupText(chunk.content) === contentKey
+  );
 }
 
 function extractResearchSummary(researchResult) {
@@ -434,11 +569,27 @@ function extractResearchSummary(researchResult) {
 function clearKnowledgeBase() {
   knowledgeBase = [];
   clearChunks();
+  activeProject = getActiveProject();
 }
 
 function setKnowledgeBaseForTest(data) {
   knowledgeBase = Array.isArray(data) ? data : [];
   saveChunks(knowledgeBase);
+  activeProject = getActiveProject();
+}
+
+function buildProjectName(input, mode) {
+  const label = mode === "topic" ? "Topic" : "URL";
+  const value = String(input || "Untitled").trim();
+  return `${label}: ${value.length > 60 ? `${value.slice(0, 57)}...` : value}`;
+}
+
+function startProject(metadata) {
+  knowledgeBase = [];
+  activeProject = createProject({
+    ...metadata,
+    name: metadata.name || buildProjectName(metadata.input, metadata.mode),
+  });
 }
 
 function extractGeneratedJson(scrapeResult) {
@@ -527,7 +678,8 @@ async function buildKnowledgeBaseFromUrls(
   }
 
   if (!options.preserveExisting) {
-    clearKnowledgeBase();
+    knowledgeBase = [];
+    saveChunks(knowledgeBase);
   }
 
   const startingChunkCount = knowledgeBase.length;
@@ -651,6 +803,8 @@ function addChunksFromScrapeResult(scrapeResult, url, sourceIndex) {
   const chunks = chunkText(markdown);
 
   chunks.forEach((chunk, chunkIndex) => {
+    if (chunkExists(url, chunk)) return;
+
     knowledgeBase.push({
       id: `${Date.now()}-${sourceIndex}-${chunkIndex}`,
       title,
@@ -691,6 +845,8 @@ function seedKnowledgeBaseFromSources(sources, topic, researchSummary = "") {
       .join("\n\n");
 
     chunkText(content, 700).forEach((chunk, chunkIndex) => {
+      if (chunkExists(source.url, chunk)) return;
+
       knowledgeBase.push({
         id: `search-${Date.now()}-${sourceIndex}-${chunkIndex}`,
         title: source.title || source.url,
@@ -831,17 +987,30 @@ app.get("/health", (req, res) => {
 app.post("/api/build", async (req, res) => {
   try {
     const { input, mode, researchMode, extractionMode } = req.body;
-    clearKnowledgeBase();
 
     if (!input) {
       return res.status(400).json({ error: "Input URL is required" });
     }
 
     if (mode === "topic" || !isValidHttpUrl(input)) {
+      startProject({
+        input,
+        mode: "topic",
+        researchMode: researchMode || "standard",
+        extractionMode: "",
+      });
       const topicResult = await buildTopicKnowledgeBase(input, researchMode);
+      updateProjectMetadata(activeProject.id, {
+        totalSources: topicResult.totalSourcesDiscovered,
+        totalChunks: knowledgeBase.length,
+        sources: topicResult.discoveredSources,
+        summary: topicResult.researchSummary,
+        researchMode: topicResult.researchMode,
+      });
 
       return res.json({
         success: true,
+        project: getActiveProject(),
         mode: "topic",
         researchMode: topicResult.researchMode,
         topic: input,
@@ -857,6 +1026,12 @@ app.post("/api/build", async (req, res) => {
       });
     }
 
+    startProject({
+      input,
+      mode: "url",
+      researchMode: researchMode || "standard",
+      extractionMode: extractionMode === "crawl" ? "crawl" : "scrape",
+    });
     const urls = [input];
     const buildResult = await buildKnowledgeBaseFromUrls(
       urls,
@@ -867,9 +1042,15 @@ app.post("/api/build", async (req, res) => {
         fallbackToScrape: true,
       }
     );
+    updateProjectMetadata(activeProject.id, {
+      totalSources: urls.length,
+      totalChunks: knowledgeBase.length,
+      sources: urls.map((url) => ({ title: url, url, snippet: "" })),
+    });
 
     res.json({
       success: true,
+      project: getActiveProject(),
       extractionMode: extractionMode === "crawl" ? "crawl" : "scrape",
       urls,
       discoveredSources: urls.map((url) => ({ title: url, url, snippet: "" })),
@@ -892,16 +1073,29 @@ app.post("/api/topic-build", async (req, res) => {
   try {
     const { input, topic, researchMode } = req.body;
     const query = input || topic;
-    clearKnowledgeBase();
 
     if (!query) {
       return res.status(400).json({ error: "Topic is required" });
     }
 
+    startProject({
+      input: query,
+      mode: "topic",
+      researchMode: researchMode || "standard",
+      extractionMode: "",
+    });
     const topicResult = await buildTopicKnowledgeBase(query, researchMode);
+    updateProjectMetadata(activeProject.id, {
+      totalSources: topicResult.totalSourcesDiscovered,
+      totalChunks: knowledgeBase.length,
+      sources: topicResult.discoveredSources,
+      summary: topicResult.researchSummary,
+      researchMode: topicResult.researchMode,
+    });
 
     res.json({
       success: true,
+      project: getActiveProject(),
       mode: "topic",
       researchMode: topicResult.researchMode,
       topic: query,
@@ -944,6 +1138,33 @@ app.get("/api/search", (req, res) => {
   });
 });
 
+app.get("/api/projects", (req, res) => {
+  res.json({
+    activeProject: getActiveProject(),
+    projects: listProjects(),
+  });
+});
+
+app.post("/api/projects/:id/activate", (req, res) => {
+  try {
+    const project = activateProject(req.params.id);
+    activeProject = project;
+    knowledgeBase = loadChunks(project.id);
+
+    res.json({
+      success: true,
+      project,
+      totalChunks: knowledgeBase.length,
+      sample: knowledgeBase.slice(0, 3),
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({
+      error: "Failed to activate project",
+      details: error.message,
+    });
+  }
+});
+
 app.post("/api/ask", (req, res) => {
   const { question } = req.body;
 
@@ -958,18 +1179,16 @@ app.post("/api/ask", (req, res) => {
 });
 
 app.get("/api/export", (req, res) => {
+  const { format } = req.query;
+  const exportPayload = getExportPayload(format);
+
   res.setHeader("Content-Type", "application/json");
   res.setHeader(
     "Content-Disposition",
-    'attachment; filename="web2knowledge-dataset.json"'
+    `attachment; filename="${exportPayload.filename}"`
   );
 
-  res.send(JSON.stringify({
-    project: "Web2Knowledge",
-    generatedAt: new Date().toISOString(),
-    totalChunks: knowledgeBase.length,
-    data: knowledgeBase,
-  }, null, 2));
+  res.send(JSON.stringify(exportPayload.body, null, 2));
 });
 
 app.delete("/api/dataset", (req, res) => {
@@ -978,6 +1197,7 @@ app.delete("/api/dataset", (req, res) => {
   res.json({
     success: true,
     totalChunks: knowledgeBase.length,
+    activeProject: getActiveProject(),
   });
 });
 
@@ -994,6 +1214,7 @@ module.exports = {
   closeDatabaseForTest,
   extractResearchSummary,
   extractSearchResults,
+  getExportPayload,
   isValidHttpUrl,
   setKnowledgeBaseForTest,
 };

@@ -20,7 +20,7 @@ const {
   setKnowledgeBaseForTest,
 } = require("../server");
 
-const { loadChunks } = require("../utils/storage");
+const { createProject, loadChunks, saveChunks } = require("../utils/storage");
 
 function startTestServer() {
   const server = http.createServer(app);
@@ -137,6 +137,36 @@ test("export route includes generated chunks and metadata", async () => {
   }
 });
 
+test("export route supports LangChain preset", async () => {
+  const server = await startTestServer();
+
+  try {
+    setKnowledgeBaseForTest([
+      {
+        id: "chunk-1",
+        title: "Tailwind Docs",
+        source: "https://tailwindcss.com/docs",
+        content: "Tailwind utility classes",
+        chunkIndex: 0,
+      },
+    ]);
+
+    const response = await fetch(`${server.baseUrl}/api/export?format=langchain`);
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      response.headers.get("content-disposition"),
+      'attachment; filename="web2knowledge-langchain.json"'
+    );
+    assert.equal(data[0].pageContent, "Tailwind utility classes");
+    assert.equal(data[0].metadata.source, "https://tailwindcss.com/docs");
+  } finally {
+    clearKnowledgeBase();
+    await server.close();
+  }
+});
+
 test("dataset route clears persisted chunks", async () => {
   const server = await startTestServer();
 
@@ -163,6 +193,65 @@ test("dataset route clears persisted chunks", async () => {
     assert.equal(data.totalChunks, 0);
     assert.equal(exported.totalChunks, 0);
     assert.deepEqual(exported.data, []);
+  } finally {
+    clearKnowledgeBase();
+    await server.close();
+  }
+});
+
+test("project history lists and activates saved datasets", async () => {
+  const server = await startTestServer();
+
+  try {
+    clearKnowledgeBase();
+    createProject({
+      id: "project-one",
+      name: "Project One",
+      input: "https://example.com/one",
+      mode: "url",
+      totalSources: 1,
+    });
+    saveChunks([
+      {
+        id: "one-1",
+        title: "One",
+        source: "https://example.com/one",
+        content: "First project content",
+        chunkIndex: 0,
+      },
+    ]);
+    createProject({
+      id: "project-two",
+      name: "Project Two",
+      input: "https://example.com/two",
+      mode: "url",
+      totalSources: 1,
+    });
+    saveChunks([
+      {
+        id: "two-1",
+        title: "Two",
+        source: "https://example.com/two",
+        content: "Second project content",
+        chunkIndex: 0,
+      },
+    ]);
+
+    const projectsResponse = await fetch(`${server.baseUrl}/api/projects`);
+    const projectsData = await projectsResponse.json();
+    const activateResponse = await fetch(`${server.baseUrl}/api/projects/project-one/activate`, {
+      method: "POST",
+    });
+    const activateData = await activateResponse.json();
+    const searchResponse = await fetch(`${server.baseUrl}/api/search`);
+    const searchData = await searchResponse.json();
+
+    assert.equal(projectsResponse.status, 200);
+    assert.equal(projectsData.projects.length, 2);
+    assert.equal(projectsData.activeProject.id, "project-two");
+    assert.equal(activateResponse.status, 200);
+    assert.equal(activateData.project.id, "project-one");
+    assert.equal(searchData.results[0].id, "one-1");
   } finally {
     clearKnowledgeBase();
     await server.close();
@@ -490,6 +579,22 @@ test("extractSearchResults recursively extracts, filters, dedupes, and limits UR
     ]
   );
   assert.equal(results[1].snippet, "Nested result");
+});
+
+test("extractSearchResults dedupes canonical URL variants", () => {
+  const results = extractSearchResults({
+    results: [
+      { title: "One", url: "https://example.com/docs/" },
+      { title: "Same", url: "https://example.com/docs#intro" },
+      { title: "Two", url: "https://example.com/other" },
+    ],
+  });
+
+  assert.equal(results.length, 2);
+  assert.deepEqual(
+    results.map((item) => item.url),
+    ["https://example.com/docs/", "https://example.com/other"]
+  );
 });
 
 test("extractSearchResults supports citation fields", () => {

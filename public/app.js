@@ -9,6 +9,8 @@ const appState = {
   results: [],
   sourcesList: [],
   researchSummary: "",
+  projects: [],
+  activeProject: null,
 };
 
 const pipelineStages = ["Discover", "Extract", "Chunk", "Ready"];
@@ -17,10 +19,12 @@ renderPipelineStages();
 renderEmptyState("Start by building a knowledge base from a URL or topic.");
 syncModeControls();
 updateControls();
+updateExportLink();
 loadSavedDataset();
 
 async function loadSavedDataset() {
   try {
+    await loadProjects();
     const res = await fetch("/api/search");
     const data = await res.json();
     const results = data.results || [];
@@ -28,7 +32,11 @@ async function loadSavedDataset() {
 
     appState.results = results;
     appState.hasBuilt = total > 0;
-    updateStats({ sources: 0, chunks: total, results: results.length });
+    updateStats({
+      sources: appState.activeProject?.totalSources || 0,
+      chunks: total,
+      results: results.length,
+    });
     updateSourcesHint(total > 0 ? "Saved dataset" : "Current build");
     updateDatasetState();
     updateControls();
@@ -45,6 +53,17 @@ async function loadSavedDataset() {
   } catch (err) {
     setStatus("Offline", "Could not load saved dataset.", "error");
   }
+}
+
+async function loadProjects() {
+  const res = await fetch("/api/projects");
+  const data = await res.json();
+
+  appState.projects = data.projects || [];
+  appState.activeProject = data.activeProject || null;
+  appState.sourcesList = appState.activeProject?.sources || [];
+  appState.researchSummary = appState.activeProject?.summary || "";
+  renderProjects();
 }
 
 async function buildKB() {
@@ -109,6 +128,7 @@ async function buildKB() {
     const fallbackText = data.agenticFallback ? " Agentic fallback used." : "";
     const skippedText = failedCount ? ` ${failedCount} source${failedCount === 1 ? "" : "s"} skipped.` : "";
     setStatus("Complete", `Created ${data.totalChunks} chunk${data.totalChunks === 1 ? "" : "s"}.${skippedText}${fallbackText}`, "success");
+    await loadProjects();
     updateDatasetState();
     await searchKB();
   } catch (err) {
@@ -178,20 +198,42 @@ async function clearDataset() {
     appState.hasBuilt = false;
     appState.results = [];
     appState.sourcesList = [];
-    appState.researchSummary = "";
-    document.getElementById("search").value = "";
+        appState.researchSummary = "";
+        appState.projects = [];
+        appState.activeProject = null;
+        document.getElementById("search").value = "";
     document.getElementById("question").value = "";
     clearAnswer();
     updateStats({ sources: 0, chunks: 0, results: 0 });
     updateSourcesHint("Current build");
     updateDatasetState();
     updateResultCount(0, "");
-    renderEmptyState("Start by building a knowledge base from a URL or topic.");
-    setStatus("Cleared", "Dataset cleared.", "success");
-  } catch (err) {
+        renderEmptyState("Start by building a knowledge base from a URL or topic.");
+        setStatus("Cleared", "Dataset cleared.", "success");
+        await loadProjects();
+      } catch (err) {
     setStatus("Clear Failed", "The browser could not reach the backend.", "error");
   } finally {
     updateControls();
+  }
+}
+
+async function activateProject(projectId) {
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/activate`, {
+      method: "POST",
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      setStatus("Project Failed", data.details || data.error || "Could not activate project.", "error");
+      return;
+    }
+
+    await loadSavedDataset();
+    setStatus("Loaded", `Loaded ${data.project.name}.`, "success");
+  } catch (err) {
+    setStatus("Project Failed", "The browser could not activate that project.", "error");
   }
 }
 
@@ -294,6 +336,25 @@ function renderAnswer(data) {
       <a href="${escapeAttribute(citation.source)}" target="_blank" class="citation-link">
         Source ${index + 1}: ${escapeHtml(citation.title)}
       </a>
+    `)
+    .join("");
+}
+
+function renderProjects() {
+  const list = document.getElementById("projectList");
+  if (!list) return;
+
+  if (appState.projects.length === 0) {
+    list.innerHTML = `<div class="empty-state compact"><p>No saved projects yet.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = appState.projects
+    .map((project) => `
+      <button type="button" class="project-item ${project.active ? "active" : ""}" onclick="activateProject('${escapeAttribute(project.id)}')">
+        <strong>${escapeHtml(project.name)}</strong>
+        <span>${project.totalChunks} chunks · ${project.totalSources} sources</span>
+      </button>
     `)
     .join("");
 }
@@ -429,18 +490,27 @@ function updateControls() {
   document.getElementById("clearButton").disabled = appState.isBuilding || appState.chunks === 0;
 }
 
+function updateExportLink() {
+  const format = document.getElementById("exportFormat")?.value || "web2knowledge";
+  const href = format === "web2knowledge" ? "/api/export" : `/api/export?format=${encodeURIComponent(format)}`;
+  const link = document.getElementById("exportLink");
+  if (link) link.href = href;
+}
+
 function updateDatasetState() {
   const badge = document.getElementById("datasetBadge");
   const state = document.getElementById("datasetState");
 
   if (appState.chunks > 0) {
-    badge.className = "rounded-md border border-emerald-300/30 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-200";
+    badge.className = "badge ready";
     badge.textContent = "Ready";
-    state.textContent = `${appState.chunks} chunk${appState.chunks === 1 ? "" : "s"} available`;
+    state.textContent = appState.activeProject
+      ? `${appState.activeProject.name} · ${appState.chunks} chunk${appState.chunks === 1 ? "" : "s"}`
+      : `${appState.chunks} chunk${appState.chunks === 1 ? "" : "s"} available`;
     return;
   }
 
-  badge.className = "rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs font-semibold text-slate-300";
+  badge.className = "badge";
   badge.textContent = "Idle";
   state.textContent = "No active dataset";
 }

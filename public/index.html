@@ -18,7 +18,15 @@
 
       <div class="topbar-actions">
         <button id="clearButton" class="button danger" onclick="clearDataset()" disabled>Clear Dataset</button>
-        <a class="button secondary" href="/api/export" target="_blank">Download JSON</a>
+        <select id="exportFormat" class="select" onchange="updateExportLink()">
+          <option value="web2knowledge">Web2Knowledge</option>
+          <option value="langchain">LangChain</option>
+          <option value="llamaindex">LlamaIndex</option>
+          <option value="pinecone">Pinecone</option>
+          <option value="supabase">Supabase</option>
+          <option value="lancedb">LanceDB</option>
+        </select>
+        <a id="exportLink" class="button secondary" href="/api/export" target="_blank">Download JSON</a>
       </div>
     </header>
 
@@ -118,6 +126,16 @@
           </button>
 
           <div id="modeHelper" class="info-box">URL mode scrapes the exact page you enter. Topic mode discovers sources first.</div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Project History</h2>
+              <p>Switch between saved datasets.</p>
+            </div>
+          </div>
+          <div id="projectList" class="project-list"></div>
         </section>
 
         <section id="ask-section" class="panel">

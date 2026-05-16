@@ -19,12 +19,15 @@ The app supports URL scraping, limited site crawling, topic research, optional A
 - Local URL fetch fallback when Anakin URL scraping has a transient non-auth failure.
 - Markdown-aware chunking by headings and paragraphs.
 - SQLite persistence in `data/web2knowledge.sqlite`.
+- Project history with multiple saved datasets.
 - Saved dataset hydration on page load.
+- Source URL and chunk deduplication.
 - Ranked local search with stopword filtering and light token normalization.
 - Ask endpoint that returns extractive answers with citations.
 - Low-confidence guard for unrelated questions.
 - Clear Dataset action.
 - Downloadable JSON export.
+- Export presets for Web2Knowledge, LangChain, LlamaIndex, Pinecone, Supabase, and LanceDB.
 - Product-style UI with local CSS, tabs, guide, workspace, source cards, and ask panel.
 - Deployment-ready Render config.
 
@@ -32,33 +35,6 @@ The app supports URL scraping, limited site crawling, topic research, optional A
 
 ## Product Flow
 
-```mermaid
-flowchart TD
-  A[User enters URL or topic] --> B{URL or Topic mode?}
-  B -->|URL| C{Extraction mode}
-  C -->|Single| D[Anakin URL Scraper]
-  C -->|Crawl| E[Anakin Crawl]
-  D -->|Non-auth failure| F[Local fetch fallback]
-  B -->|Topic| G{Research mode}
-  G -->|Standard| H[Anakin Search API]
-  G -->|Deep| I[Anakin Agentic Search]
-  I -->|Timeout/failure/no URLs| H
-  H --> J[Normalize discovered sources]
-  I --> J
-  J --> K[Seed source chunks]
-  J --> L[Optional top-source scrape]
-  D --> M[Normalize extracted content]
-  E --> M
-  F --> M
-  L --> M
-  M --> N[Markdown-aware chunking]
-  K --> O[(SQLite-backed active dataset)]
-  N --> O
-  O --> P[Ranked Search]
-  O --> Q[Ask with citations]
-  O --> R[Export JSON]
-  O --> S[Reload saved dataset on page load]
-```
 
 ---
 
@@ -132,7 +108,7 @@ Run:
 npm.cmd test
 ```
 
-Current coverage: `23` tests.
+Current coverage: `26` tests.
 
 The automated suite does not call Anakin live. It covers:
 
@@ -143,6 +119,9 @@ The automated suite does not call Anakin live. It covers:
 - Exported chunk metadata.
 - Dataset clearing.
 - SQLite persistence.
+- Project history activation.
+- Export preset formatting.
+- Canonical source deduplication.
 - Missing input validation.
 - Missing topic validation.
 - Search endpoint behavior.
@@ -327,6 +306,14 @@ Searches ranked chunks when `q` is provided:
 /api/search?q=installation
 ```
 
+## `GET /api/projects`
+
+Lists saved datasets and the current active project.
+
+## `POST /api/projects/:id/activate`
+
+Switches the active dataset to a saved project.
+
 ## `POST /api/ask`
 
 Answers a question from the active dataset using retrieved chunk context.
@@ -347,10 +334,21 @@ Response includes:
 
 ## `GET /api/export`
 
-Downloads the active dataset as:
+Downloads the active dataset. Default format:
 
 ```text
 web2knowledge-dataset.json
+```
+
+Supported presets:
+
+```text
+/api/export
+/api/export?format=langchain
+/api/export?format=llamaindex
+/api/export?format=pinecone
+/api/export?format=supabase
+/api/export?format=lancedb
 ```
 
 Shape:
@@ -366,7 +364,7 @@ Shape:
 
 ## `DELETE /api/dataset`
 
-Clears the active dataset from memory and SQLite.
+Deletes the active dataset from memory and SQLite. Other saved projects remain available.
 
 Response:
 
@@ -419,6 +417,7 @@ The UI includes:
 - Build/Workspace/Ask/Guide tabs.
 - Dataset stats.
 - Build sidebar.
+- Project History sidebar.
 - Ask panel.
 - Status/progress panel.
 - Workspace tabs for Results, Sources, and Summary.
@@ -432,11 +431,14 @@ The UI includes:
 - Agentic Search jobs are async and use polling.
 - Agentic Search can fall back to Standard Search.
 - Topic mode seeds chunks from discovered source metadata before optional scraping.
+- Source URLs are canonicalized to reduce duplicate sources.
+- Duplicate chunks from the same source are skipped.
 - Topic source scraping uses a short timeout so builds stay responsive.
 - Direct URL builds can fall back to local fetch on non-auth Anakin scrape failures.
 - Auth failures do not use local fallback, so bad API keys are visible.
 - Ask uses a low-confidence guard to avoid answering unrelated questions from weak matches.
 - Saved chunks reload on page load.
+- Saved projects can be reactivated from Project History.
 
 ---
 
@@ -465,11 +467,8 @@ The included `render.yaml` can be used as a Render blueprint.
 
 ## Future Scope
 
-- Project history with multiple saved datasets.
 - Real vector embeddings and semantic search.
 - LLM-backed RAG chat.
 - Background queue for long crawls.
 - Source quality scoring.
-- Source deduplication.
 - Scheduled refreshes.
-- Export presets for LangChain, LlamaIndex, Pinecone, Supabase, and LanceDB.

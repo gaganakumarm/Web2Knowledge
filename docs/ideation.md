@@ -11,9 +11,12 @@ The product has evolved from a simple web-to-knowledge demo into a lightweight r
 - Standard topic search.
 - Deep Research using Agentic Search with fallback.
 - SQLite-backed dataset persistence.
+- Project history with multiple saved datasets.
+- Source deduplication.
 - Ranked local search.
 - Extractive ask with citations.
 - JSON export.
+- Export presets for common RAG tools.
 - Product-style UI with tabs and a built-in user guide.
 
 The goal is to make public web knowledge usable for AI assistants, RAG systems, research workflows, and developer tooling without adding heavy infrastructure.
@@ -51,9 +54,11 @@ The system:
 5. Falls back to local URL fetch for non-auth direct scrape failures.
 6. Converts content into normalized chunks with generated JSON metadata when available.
 7. Persists chunks to SQLite.
-8. Searches the active dataset with ranked local retrieval.
-9. Answers questions with citations from retrieved chunks.
-10. Exports the current knowledge base as downloadable JSON.
+8. Saves each build as a project in history.
+9. Deduplicates discovered sources and repeated chunks.
+10. Searches the active dataset with ranked local retrieval.
+11. Answers questions with citations from retrieved chunks.
+12. Exports the current knowledge base as downloadable JSON or tool-specific presets.
 
 ---
 
@@ -100,37 +105,9 @@ The product remains intentionally lightweight:
 - No separate build step.
 - No auth yet.
 - No vector database yet.
-- SQLite is used for a single active saved dataset.
+- SQLite is used for project history and the active workspace.
+- SQLite stores multiple saved projects.
 
-```mermaid
-mindmap
-  root((Web2Knowledge))
-    Build Dataset
-      URL scrape
-      Site crawl
-      Topic search
-      Deep research
-      Local fallback
-    Dataset Store
-      Active dataset
-      SQLite persistence
-      Clear dataset
-      Export JSON
-    Explore Dataset
-      Ranked search
-      Results tab
-      Sources tab
-      Summary tab
-    Ask
-      Extractive answer
-      Citations
-      Low-confidence guard
-    Product UI
-      Local CSS
-      Tabs
-      User guide
-      Examples
-```
 
 ---
 
@@ -189,29 +166,18 @@ The current product prioritizes reliability, clarity, and demo speed.
 Key decisions:
 
 - Keep one active dataset instead of multi-project history.
-- Persist the active dataset to SQLite.
+- Keep one active dataset in the workspace while preserving project history.
+- Persist projects and chunks to SQLite.
 - Keep search local and deterministic for now.
 - Use extractive ask instead of requiring another LLM dependency.
 - Add a low-confidence guard so unrelated questions do not get misleading answers.
 - Seed topic builds from discovered source metadata immediately.
+- Deduplicate source URLs and repeated chunks.
 - Scrape only the top topic source by default.
 - Use local direct-URL fallback only for non-auth scrape failures.
 - Keep frontend static, maintainable, and framework-free.
 - Use local CSS instead of relying on a CDN for layout.
 
-```mermaid
-flowchart LR
-  A[Demo reliability] --> B[SQLite persistence]
-  A --> C[Search fallback paths]
-  A --> D[Agentic fallback]
-  A --> E[Local URL fallback]
-  A --> F[Low-confidence ask guard]
-  B --> G[Product-ready MVP]
-  C --> G
-  D --> G
-  E --> G
-  F --> G
-```
 
 ---
 
@@ -234,7 +200,8 @@ Web2Knowledge helps users:
 - Multiple saved projects/datasets.
 - True vector embeddings and semantic retrieval.
 - LLM-backed RAG chat.
-- Source scoring and deduplication.
+- Source quality scoring.
+- Source quality scoring.
 - Better source metadata persistence.
 - Scheduled refreshes for changing documentation.
 - Export templates for LangChain, LlamaIndex, Pinecone, Supabase, and LanceDB.
