@@ -4,13 +4,52 @@ const path = require("path");
 require("dotenv").config();
 
 const { agenticSearch, crawlSite, scrapeUrl, searchWeb } = require("./utils/anakin");
+const {
+  clearChunks,
+  closeDatabaseForTest,
+  loadChunks,
+  saveChunks,
+} = require("./utils/storage");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-let knowledgeBase = [];
+let knowledgeBase = loadChunks();
 const TOPIC_SCRAPE_LIMIT = 1;
 const TOPIC_SCRAPE_TIMEOUT_MS = 12000;
+const SEARCH_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "can",
+  "do",
+  "does",
+  "for",
+  "from",
+  "how",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+]);
 
 app.use(cors());
 app.use(express.json());
@@ -45,13 +84,249 @@ function chunkText(text, chunkSize = 900) {
   if (!text) return [];
 
   const cleaned = text.replace(/\n{3,}/g, "\n\n").trim();
+  const blocks = splitMarkdownBlocks(cleaned);
   const chunks = [];
+  let currentChunk = "";
 
-  for (let i = 0; i < cleaned.length; i += chunkSize) {
-    chunks.push(cleaned.slice(i, i + chunkSize));
+  blocks.forEach((block) => {
+    const startsNewSection = /^#{1,6}\s+\S/.test(block);
+
+    if (startsNewSection && currentChunk) {
+      chunks.push(currentChunk);
+      currentChunk = "";
+    }
+
+    if (block.length > chunkSize) {
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = "";
+      }
+
+      chunks.push(...splitLargeBlock(block, chunkSize));
+      return;
+    }
+
+    const nextChunk = currentChunk ? `${currentChunk}\n\n${block}` : block;
+
+    if (nextChunk.length <= chunkSize) {
+      currentChunk = nextChunk;
+      return;
+    }
+
+    if (currentChunk) {
+      chunks.push(currentChunk);
+    }
+
+    currentChunk = block;
+  });
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
   }
 
   return chunks;
+}
+
+function splitMarkdownBlocks(text) {
+  const blocks = [];
+  let currentBlock = [];
+
+  text.split("\n").forEach((line) => {
+    const isHeading = /^#{1,6}\s+\S/.test(line);
+    const isBlank = line.trim() === "";
+
+    if (isHeading && currentBlock.length > 0) {
+      blocks.push(currentBlock.join("\n").trim());
+      currentBlock = [];
+    }
+
+    if (isBlank) {
+      if (currentBlock.length > 0) {
+        blocks.push(currentBlock.join("\n").trim());
+        currentBlock = [];
+      }
+      return;
+    }
+
+    currentBlock.push(line);
+  });
+
+  if (currentBlock.length > 0) {
+    blocks.push(currentBlock.join("\n").trim());
+  }
+
+  return blocks.filter(Boolean);
+}
+
+function splitLargeBlock(block, chunkSize) {
+  const chunks = [];
+  let remaining = block.trim();
+
+  while (remaining.length > chunkSize) {
+    const splitAt = findSplitPoint(remaining, chunkSize);
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+
+  if (remaining) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
+}
+
+function findSplitPoint(text, chunkSize) {
+  const window = text.slice(0, chunkSize + 1);
+  const sentenceBreak = Math.max(
+    window.lastIndexOf(". "),
+    window.lastIndexOf("? "),
+    window.lastIndexOf("! ")
+  );
+
+  if (sentenceBreak > chunkSize * 0.5) {
+    return sentenceBreak + 1;
+  }
+
+  const wordBreak = window.lastIndexOf(" ");
+  return wordBreak > chunkSize * 0.5 ? wordBreak : chunkSize;
+}
+
+function normalizeSearchToken(token) {
+  const value = token.toLowerCase();
+
+  if (value.startsWith("rout")) return "route";
+  if (value === "docs" || value === "documentation") return "doc";
+  if (value === "datasets") return "dataset";
+  if (value === "classes") return "class";
+
+  return value
+    .replace(/(?:ing|ed|es|s)$/u, "")
+    .replace(/[^a-z0-9]/gu, "");
+}
+
+function tokenizeSearchText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.map(normalizeSearchToken)
+    .filter((token) => token.length > 1 && !SEARCH_STOPWORDS.has(token)) || [];
+}
+
+function countTokens(tokens) {
+  return tokens.reduce((counts, token) => {
+    counts.set(token, (counts.get(token) || 0) + 1);
+    return counts;
+  }, new Map());
+}
+
+function cosineSimilarity(queryTokens, documentTokens) {
+  if (queryTokens.length === 0 || documentTokens.length === 0) return 0;
+
+  const queryCounts = countTokens(queryTokens);
+  const documentCounts = countTokens(documentTokens);
+  let dotProduct = 0;
+  let queryMagnitude = 0;
+  let documentMagnitude = 0;
+
+  queryCounts.forEach((count, token) => {
+    dotProduct += count * (documentCounts.get(token) || 0);
+    queryMagnitude += count ** 2;
+  });
+
+  documentCounts.forEach((count) => {
+    documentMagnitude += count ** 2;
+  });
+
+  if (dotProduct === 0) return 0;
+
+  return dotProduct / (Math.sqrt(queryMagnitude) * Math.sqrt(documentMagnitude));
+}
+
+function scoreSearchResult(item, query) {
+  const normalizedQuery = query.toLowerCase();
+  const title = item.title.toLowerCase();
+  const content = item.content.toLowerCase();
+  const source = item.source.toLowerCase();
+  const queryTokens = tokenizeSearchText(query);
+  const documentTokens = tokenizeSearchText(`${item.title} ${item.content} ${item.source}`);
+  let score = cosineSimilarity(queryTokens, documentTokens);
+
+  if (title.includes(normalizedQuery)) score += 2;
+  if (content.includes(normalizedQuery)) score += 1;
+  if (source.includes(normalizedQuery)) score += 0.5;
+
+  return score;
+}
+
+function rankKnowledgeBase(query, limit = 20) {
+  return knowledgeBase
+    .map((item) => ({
+      ...item,
+      score: scoreSearchResult(item, query),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+function splitSentences(text) {
+  return String(text || "")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function buildExtractiveAnswer(question) {
+  const context = rankKnowledgeBase(question, 5);
+
+  if (context.length === 0 || context[0].score < 0.05) {
+    return {
+      answer: "I could not find matching context in the current knowledge base.",
+      citations: [],
+      totalContextChunks: 0,
+    };
+  }
+
+  const candidateSentences = context.flatMap((chunk) =>
+    splitSentences(chunk.content).map((sentence) => ({
+      sentence,
+      chunk,
+      score: scoreSearchResult(
+        {
+          title: chunk.title,
+          source: chunk.source,
+          content: sentence,
+        },
+        question
+      ),
+    }))
+  );
+
+  const selectedSentences = candidateSentences
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  const answer = selectedSentences.length
+    ? selectedSentences.map((item) => item.sentence).join(" ")
+    : context
+        .slice(0, 2)
+        .map((chunk) => chunk.content.slice(0, 260))
+        .join(" ");
+
+  const citations = context.slice(0, 3).map((chunk) => ({
+    title: chunk.title,
+    source: chunk.source,
+    chunkIndex: chunk.chunkIndex,
+    score: chunk.score,
+  }));
+
+  return {
+    answer,
+    citations,
+    totalContextChunks: context.length,
+  };
 }
 
 function withTimeout(promise, ms, message) {
@@ -158,10 +433,12 @@ function extractResearchSummary(researchResult) {
 
 function clearKnowledgeBase() {
   knowledgeBase = [];
+  clearChunks();
 }
 
 function setKnowledgeBaseForTest(data) {
   knowledgeBase = Array.isArray(data) ? data : [];
+  saveChunks(knowledgeBase);
 }
 
 function extractGeneratedJson(scrapeResult) {
@@ -172,6 +449,68 @@ function extractGeneratedJson(scrapeResult) {
     scrapeResult.result?.generatedJson ||
     null
   );
+}
+
+function decodeHtmlEntities(text) {
+  return String(text || "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function htmlToReadableText(html) {
+  return decodeHtmlEntities(
+    String(html || "")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+      .replace(/<\/(h[1-6]|p|li|div|section|article|main|header|footer)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
+}
+
+function extractHtmlTitle(html, fallbackUrl) {
+  const match = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? decodeHtmlEntities(match[1]).trim() : fallbackUrl;
+}
+
+async function fetchUrlFallback(url) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Web2Knowledge/1.0",
+      Accept: "text/html,text/plain,application/xhtml+xml",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Fallback fetch failed with HTTP ${response.status}.`);
+  }
+
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") || "";
+  const markdown = contentType.includes("text/plain")
+    ? text.trim()
+    : htmlToReadableText(text);
+
+  if (!markdown) {
+    throw new Error("Fallback fetch returned no readable text.");
+  }
+
+  return {
+    url,
+    title: contentType.includes("text/plain") ? url : extractHtmlTitle(text, url),
+    markdown,
+    generatedJson: {
+      extractionProvider: "local-fetch-fallback",
+    },
+  };
 }
 
 async function buildKnowledgeBaseFromUrls(
@@ -188,7 +527,7 @@ async function buildKnowledgeBaseFromUrls(
   }
 
   if (!options.preserveExisting) {
-    knowledgeBase = [];
+    clearKnowledgeBase();
   }
 
   const startingChunkCount = knowledgeBase.length;
@@ -245,6 +584,33 @@ async function buildKnowledgeBaseFromUrls(
           )
         : await scrapePromise;
     } catch (error) {
+      if (error.statusCode !== 401 && !options.disableLocalFallback) {
+        try {
+          scrapeResult = await fetchUrlFallback(url);
+        } catch (fallbackError) {
+          if (!options.continueOnError) {
+            const combinedError = new Error(
+              `${error.message}; local fallback failed: ${fallbackError.message}`
+            );
+            combinedError.statusCode = error.statusCode || 502;
+            throw combinedError;
+          }
+
+          failedSources.push({
+            url,
+            error: `${error.message}; fallback failed: ${fallbackError.message}`,
+          });
+          continue;
+        }
+      } else if (!options.continueOnError) {
+        throw error;
+      }
+
+      if (scrapeResult) {
+        addChunksFromScrapeResult(scrapeResult, url, urlIndex);
+        continue;
+      }
+
       if (!options.continueOnError) {
         throw error;
       }
@@ -294,6 +660,8 @@ function addChunksFromScrapeResult(scrapeResult, url, sourceIndex) {
       generatedJson,
     });
   });
+
+  saveChunks(knowledgeBase);
 }
 
 function seedKnowledgeBaseFromSources(sources, topic, researchSummary = "") {
@@ -332,6 +700,8 @@ function seedKnowledgeBaseFromSources(sources, topic, researchSummary = "") {
       });
     });
   });
+
+  saveChunks(knowledgeBase);
 }
 
 async function buildStandardTopicKnowledgeBase(query) {
@@ -565,19 +935,25 @@ app.get("/api/search", (req, res) => {
     });
   }
 
-  const results = knowledgeBase
-    .filter(
-      (item) =>
-        item.title.toLowerCase().includes(q) ||
-        item.content.toLowerCase().includes(q) ||
-        item.source.toLowerCase().includes(q)
-    )
-    .slice(0, 20);
+  const results = rankKnowledgeBase(q, 20);
 
   res.json({
     query: q,
     total: results.length,
     results,
+  });
+});
+
+app.post("/api/ask", (req, res) => {
+  const { question } = req.body;
+
+  if (!question || !String(question).trim()) {
+    return res.status(400).json({ error: "Question is required" });
+  }
+
+  res.json({
+    question,
+    ...buildExtractiveAnswer(question),
   });
 });
 
@@ -596,6 +972,15 @@ app.get("/api/export", (req, res) => {
   }, null, 2));
 });
 
+app.delete("/api/dataset", (req, res) => {
+  clearKnowledgeBase();
+
+  res.json({
+    success: true,
+    totalChunks: knowledgeBase.length,
+  });
+});
+
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Web2Knowledge running on http://localhost:${PORT}`);
@@ -606,6 +991,7 @@ module.exports = {
   app,
   chunkText,
   clearKnowledgeBase,
+  closeDatabaseForTest,
   extractResearchSummary,
   extractSearchResults,
   isValidHttpUrl,

@@ -4,451 +4,238 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Web2Knowledge</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/styles.css" />
 </head>
-<body class="min-h-screen bg-[#080b12] text-slate-100">
-  <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-    <header class="flex flex-col gap-5 border-b border-white/10 pb-6 md:flex-row md:items-end md:justify-between">
-      <div>
-        <p class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">Anakin-powered knowledge builder</p>
-        <h1 class="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">Web2Knowledge</h1>
-        <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-          Convert a public URL or topic into clean, searchable chunks ready for AI workflows.
-        </p>
+<body>
+  <main class="app-shell">
+    <p class="eyebrow page-kicker">Anakin-powered knowledge builder</p>
+
+    <header class="topbar">
+      <div class="brand-block">
+        <h1>Web2Knowledge</h1>
+        <p class="subtitle">Build one active dataset, search it, ask questions, and export clean AI-ready JSON.</p>
       </div>
 
-      <a
-        href="/api/export"
-        target="_blank"
-        class="inline-flex h-11 items-center justify-center rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-4 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200/60 hover:bg-cyan-300/20"
-      >
-        Download AI Dataset JSON
-      </a>
+      <div class="topbar-actions">
+        <button id="clearButton" class="button danger" onclick="clearDataset()" disabled>Clear Dataset</button>
+        <a class="button secondary" href="/api/export" target="_blank">Download JSON</a>
+      </div>
     </header>
 
-    <section class="grid gap-4 py-6 md:grid-cols-3">
-      <article class="rounded-lg border border-white/10 bg-white/[0.04] p-4">
-        <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Sources Discovered</p>
-        <p id="sourcesStat" class="mt-3 text-3xl font-semibold text-white">0</p>
+    <nav class="page-tabs" aria-label="Product sections">
+      <a href="#build-section">Build</a>
+      <a href="#workspace-section">Workspace</a>
+      <a href="#ask-section">Ask</a>
+      <a href="#guide-section">Guide</a>
+    </nav>
+
+    <section class="stats-grid" aria-label="Dataset stats">
+      <article class="stat-card">
+        <span class="stat-label">Sources</span>
+        <strong id="sourcesStat">0</strong>
+        <span id="sourcesHint" class="stat-hint">Current build</span>
       </article>
-      <article class="rounded-lg border border-white/10 bg-white/[0.04] p-4">
-        <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Chunks Generated</p>
-        <p id="chunksStat" class="mt-3 text-3xl font-semibold text-white">0</p>
+      <article class="stat-card">
+        <span class="stat-label">Chunks</span>
+        <strong id="chunksStat">0</strong>
+        <span class="stat-hint">Saved locally</span>
       </article>
-      <article class="rounded-lg border border-white/10 bg-white/[0.04] p-4">
-        <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Search Results</p>
-        <p id="resultsStat" class="mt-3 text-3xl font-semibold text-white">0</p>
+      <article class="stat-card">
+        <span class="stat-label">Results</span>
+        <strong id="resultsStat">0</strong>
+        <span class="stat-hint">Current search</span>
       </article>
     </section>
 
-    <section class="rounded-lg border border-white/10 bg-slate-950/80 p-5 shadow-2xl shadow-cyan-950/20">
-      <div class="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+    <section class="product-grid">
+      <aside class="sidebar">
+        <section id="build-section" class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Build Dataset</h2>
+              <p>New builds replace the active dataset.</p>
+            </div>
+            <span id="datasetBadge" class="badge">Idle</span>
+          </div>
+
+          <div class="field-group">
+            <label for="input">URL or Topic</label>
+            <input id="input" class="input" placeholder="https://tailwindcss.com/docs" />
+          </div>
+
+          <div class="quick-actions">
+            <button type="button" class="chip" onclick="useExample('url')">Tailwind URL</button>
+            <button type="button" class="chip" onclick="useExample('topic')">AI Topic</button>
+          </div>
+
+          <fieldset class="control-group">
+            <legend>Input Type</legend>
+            <div class="segmented">
+              <label class="mode-control">
+                <input type="radio" name="mode" value="url" checked onchange="syncModeControls()" />
+                <span>URL</span>
+              </label>
+              <label class="mode-control">
+                <input type="radio" name="mode" value="topic" onchange="syncModeControls()" />
+                <span>Topic</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset id="extractionFieldset" class="control-group">
+            <legend>Extraction</legend>
+            <div class="segmented">
+              <label class="mode-control">
+                <input type="radio" name="extractionMode" value="scrape" checked />
+                <span>Single</span>
+              </label>
+              <label class="mode-control">
+                <input type="radio" name="extractionMode" value="crawl" />
+                <span>Crawl</span>
+              </label>
+            </div>
+            <p id="extractionHint" class="hint">Used only for URL builds.</p>
+          </fieldset>
+
+          <fieldset class="control-group">
+            <legend>Research</legend>
+            <div class="segmented">
+              <label class="mode-control">
+                <input type="radio" name="researchMode" value="standard" checked />
+                <span>Standard</span>
+              </label>
+              <label class="mode-control">
+                <input type="radio" name="researchMode" value="agentic" />
+                <span>Deep</span>
+              </label>
+            </div>
+            <p class="hint">Deep falls back to Standard if Agentic Search times out.</p>
+          </fieldset>
+
+          <button id="buildButton" class="button primary full-width" onclick="buildKB()">
+            <span id="buildSpinner" class="spinner hidden"></span>
+            <span id="buildButtonText">Build Knowledge Base</span>
+          </button>
+
+          <div id="modeHelper" class="info-box">URL mode scrapes the exact page you enter. Topic mode discovers sources first.</div>
+        </section>
+
+        <section id="ask-section" class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Ask</h2>
+              <p id="datasetState">No active dataset</p>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <textarea id="question" class="textarea" rows="5" placeholder="Ask about the active dataset..."></textarea>
+          </div>
+
+          <div class="ask-actions">
+            <button id="askButton" class="button success" onclick="askKB()" disabled>Ask</button>
+            <button type="button" class="button ghost" onclick="useExample('ask')">Sample</button>
+          </div>
+          <p id="askHint" class="hint">Questions must match the active dataset.</p>
+
+          <div id="answerPanel" class="answer-panel hidden">
+            <p id="answerText"></p>
+            <div id="answerCitations" class="citation-list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="main-column">
+        <section id="statusPanel" class="panel status-panel">
+          <div>
+            <p id="statusLabel" class="status-label">Ready</p>
+            <p id="status" class="status-message">Build or load a dataset to begin.</p>
+          </div>
+          <div id="pipelinePanel" class="pipeline hidden">
+            <div id="pipelineStages" class="pipeline-grid"></div>
+          </div>
+        </section>
+
+        <section id="workspace-section" class="panel workspace-panel">
+          <div class="workspace-header">
+            <div>
+              <h2>Workspace</h2>
+              <p id="resultCount">Build a dataset to start searching.</p>
+            </div>
+
+            <div class="workspace-controls">
+              <div class="tabs">
+                <label class="tab-control">
+                  <input type="radio" name="activeTab" value="results" checked onchange="renderActiveTab()" />
+                  <span>Results</span>
+                </label>
+                <label class="tab-control">
+                  <input type="radio" name="activeTab" value="sources" onchange="renderActiveTab()" />
+                  <span>Sources</span>
+                </label>
+                <label class="tab-control">
+                  <input type="radio" name="activeTab" value="summary" onchange="renderActiveTab()" />
+                  <span>Summary</span>
+                </label>
+              </div>
+              <input id="search" class="input search-input" oninput="searchKB()" placeholder="Search generated chunks..." />
+            </div>
+          </div>
+
+          <div id="workspace" class="workspace-content"></div>
+        </section>
+      </section>
+    </section>
+
+    <section id="guide-section" class="guide-panel">
+      <div class="guide-header">
         <div>
-          <label class="block text-sm font-medium text-slate-300" for="input">Input URL or Topic</label>
-          <input
-            id="input"
-            class="mt-2 h-12 w-full rounded-lg border border-white/10 bg-slate-900 px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10"
-            placeholder="https://tailwindcss.com/docs or Next.js routing"
-          />
+          <h2>User Guide</h2>
+          <p>Use this flow when testing or presenting the product.</p>
         </div>
-
-        <button
-          id="buildButton"
-          onclick="buildKB()"
-          class="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-cyan-300 px-5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-        >
-          <span id="buildSpinner" class="hidden h-4 w-4 animate-spin rounded-full border-2 border-slate-950/30 border-t-slate-950"></span>
-          <span id="buildButtonText">Build Knowledge Base</span>
-        </button>
       </div>
 
-      <div class="mt-4 flex flex-wrap gap-2">
-        <label class="inline-flex h-9 items-center gap-2 rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 text-sm text-cyan-100">
-          <input class="accent-cyan-300" type="radio" name="mode" value="url" checked />
-          URL
-        </label>
-        <label class="inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-slate-300">
-          <input class="accent-cyan-300" type="radio" name="mode" value="topic" />
-          Topic Search
-        </label>
+      <div class="guide-grid">
+        <article class="guide-card">
+          <span>1</span>
+          <h3>Start Clean</h3>
+          <p>Click Clear Dataset when you want to remove old saved chunks and begin a fresh run.</p>
+        </article>
+        <article class="guide-card">
+          <span>2</span>
+          <h3>Build</h3>
+          <p>Use URL mode for one public page, Crawl for a small site sample, or Topic mode to discover sources.</p>
+        </article>
+        <article class="guide-card">
+          <span>3</span>
+          <h3>Explore</h3>
+          <p>Search generated chunks, switch between Results, Sources, and Summary, then ask questions grounded in the active dataset.</p>
+        </article>
+        <article class="guide-card">
+          <span>4</span>
+          <h3>Export</h3>
+          <p>Download JSON when the dataset looks right. Saved chunks reload after restart from local SQLite storage.</p>
+        </article>
       </div>
 
-      <div class="mt-4 flex flex-wrap gap-2">
-        <label class="inline-flex h-9 items-center gap-2 rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 text-sm text-cyan-100">
-          <input class="accent-cyan-300" type="radio" name="extractionMode" value="scrape" checked />
-          Single URL Scrape
-        </label>
-        <label class="inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-slate-300">
-          <input class="accent-cyan-300" type="radio" name="extractionMode" value="crawl" />
-          Site Crawl
-        </label>
-      </div>
-
-      <div class="mt-4 flex flex-wrap gap-2">
-        <label class="inline-flex h-9 items-center gap-2 rounded-lg border border-cyan-300/30 bg-cyan-300/10 px-3 text-sm text-cyan-100">
-          <input class="accent-cyan-300" type="radio" name="researchMode" value="standard" checked />
-          Standard Search
-        </label>
-        <label class="inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm text-slate-300">
-          <input class="accent-cyan-300" type="radio" name="researchMode" value="agentic" />
-          Deep Research (Agentic)
-        </label>
-      </div>
-
-      <p id="status" class="mt-4 min-h-5 text-sm text-slate-400"></p>
-
-      <div id="pipelinePanel" class="mt-5 hidden rounded-lg border border-emerald-300/20 bg-emerald-300/5 p-4">
-        <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-sm font-semibold text-emerald-200">Research Pipeline Active</p>
-          <p id="pipelineSummary" class="text-xs text-emerald-100/70">Searching sources</p>
-        </div>
-        <div id="pipelineStages" class="mt-4 grid gap-2 sm:grid-cols-4"></div>
-      </div>
-
-      <div id="sourcesPanel" class="mt-5 hidden rounded-lg border border-white/10 bg-white/[0.03] p-4">
-        <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <p class="text-sm font-semibold text-white">Discovered Sources</p>
-          <p id="sourcesSummary" class="text-xs text-slate-500">0 total</p>
-        </div>
-        <div id="sourcesList" class="mt-3 grid gap-2"></div>
-      </div>
-
-      <div id="summaryPanel" class="mt-5 hidden rounded-lg border border-cyan-300/20 bg-cyan-300/5 p-4">
-        <p class="text-sm font-semibold text-cyan-100">Research Summary</p>
-        <p id="researchSummary" class="mt-3 text-sm leading-6 text-slate-300"></p>
-      </div>
-    </section>
-
-    <section class="mt-5 rounded-lg border border-white/10 bg-slate-950/70 p-5">
-      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div class="guide-examples">
         <div>
-          <label class="block text-sm font-medium text-slate-300" for="search">Search Knowledge Base</label>
-          <p id="resultCount" class="mt-1 text-xs text-slate-500">Build a dataset to start searching.</p>
+          <h3>Good URL Test</h3>
+          <code>https://tailwindcss.com/docs</code>
         </div>
-        <input
-          id="search"
-          oninput="searchKB()"
-          class="h-11 w-full rounded-lg border border-white/10 bg-slate-900 px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10 md:max-w-md"
-          placeholder="Search generated chunks..."
-        />
+        <div>
+          <h3>Good Topic Test</h3>
+          <code>AI agents for software development</code>
+        </div>
+        <div>
+          <h3>Good Questions</h3>
+          <code>What is Tailwind CSS?</code>
+          <code>What are AI agents?</code>
+        </div>
       </div>
-    </section>
-
-    <section class="flex-1 py-5">
-      <div id="results" class="grid gap-4"></div>
     </section>
   </main>
 
-  <script>
-    const appState = {
-      sources: 0,
-      chunks: 0,
-      lastResultCount: 0,
-      hasBuilt: false,
-      isBuilding: false,
-      pipelineTimer: null,
-      pipelineStage: 0,
-    };
-
-    const pipelineStages = ["Searching", "Scraping", "Chunking", "Building KB"];
-
-    renderEmptyState("Start by building a knowledge base from a URL or topic.");
-    renderPipelineStages();
-
-    async function buildKB() {
-      const input = document.getElementById("input").value.trim();
-      const mode = document.querySelector('input[name="mode"]:checked').value;
-      const researchMode = document.querySelector('input[name="researchMode"]:checked').value;
-      const extractionMode = document.querySelector('input[name="extractionMode"]:checked').value;
-      const isTopicMode = mode === "topic" || !isHttpUrl(input);
-
-      if (!input) {
-        setStatus("Please enter a URL or topic.", "error");
-        return;
-      }
-
-      setBuilding(true);
-      clearSources();
-      clearResearchSummary();
-      appState.hasBuilt = false;
-      setStatus(getLoadingMessage(isTopicMode, researchMode), "loading");
-      document.getElementById("results").innerHTML = "";
-      document.getElementById("search").value = "";
-      updateResultCount(0, "");
-      updateStats({ sources: 0, chunks: 0, results: 0 });
-
-      if (isTopicMode) {
-        startPipeline();
-      } else {
-        stopPipeline();
-      }
-
-      try {
-        const res = await fetch(isTopicMode ? "/api/topic-build" : "/api/build", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input, mode, researchMode, extractionMode }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          const message = data.details || data.error || "Build failed";
-          stopPipeline();
-          setStatus(`Error: ${message}`, "error");
-          renderEmptyState(
-            message === "No valid sources discovered for topic."
-              ? "No valid sources discovered for topic."
-              : "The build did not complete. Check the input and try again."
-          );
-          return;
-        }
-
-        appState.hasBuilt = true;
-        stopPipeline();
-        updateStats({
-          sources: data.totalSourcesDiscovered || data.urls.length,
-          chunks: data.totalChunks,
-          results: 0,
-        });
-        renderSources(data.discoveredSources || data.urls.map((url) => ({ title: url, url })));
-        renderResearchSummary(data.researchSummary);
-        const failedCount = (data.failedSources || []).length;
-        const scrapedCount = Math.max(data.urls.length - failedCount, 0);
-        const skippedText = failedCount ? ` ${failedCount} source(s) were skipped.` : "";
-        const fallbackText = data.agenticFallback ? " Agentic Search fell back to Standard Search." : "";
-        setStatus(`Done. Scraped ${scrapedCount} source(s), created ${data.totalChunks} chunks.${skippedText}${fallbackText}`, "success");
-        await searchKB();
-      } catch (err) {
-        stopPipeline();
-        setStatus("Request failed. Check the server terminal.", "error");
-        renderEmptyState("The request could not reach the backend. Make sure the server is running.");
-      } finally {
-        setBuilding(false);
-      }
-    }
-
-    async function searchKB() {
-      const q = document.getElementById("search").value.trim();
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-      const data = await res.json();
-      const results = data.results || [];
-
-      updateStats({ results: results.length });
-      updateResultCount(results.length, q);
-
-      if (results.length === 0) {
-        if (!appState.hasBuilt) {
-          renderEmptyState("Build a knowledge base first, then search across the generated chunks.");
-        } else if (q) {
-          renderEmptyState(`No exact matches for "${q}". Try a shorter phrase, a related keyword, or search with no filter to browse all chunks.`);
-        } else {
-          renderEmptyState("No chunks are available yet. Try rebuilding with a public page that has readable text.");
-        }
-        return;
-      }
-
-      document.getElementById("results").innerHTML = results
-        .map((item) => {
-          const preview = item.content.length > 720 ? `${item.content.slice(0, 720)}...` : item.content;
-
-          return `
-            <article class="rounded-lg border border-white/10 bg-white/[0.04] p-5 transition hover:border-cyan-300/40 hover:bg-white/[0.06]">
-              <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p class="text-xs font-medium uppercase tracking-[0.16em] text-emerald-300">Chunk ${Number(item.chunkIndex) + 1}</p>
-                  <h3 class="mt-2 text-lg font-semibold leading-7 text-white">${escapeHtml(item.title)}</h3>
-                </div>
-                <a href="${escapeAttribute(item.source)}" target="_blank" class="text-xs font-medium text-cyan-300 underline-offset-4 hover:underline">
-                  Source
-                </a>
-              </div>
-              <p class="mt-4 text-sm leading-6 text-slate-300">${escapeHtml(preview)}</p>
-              <p class="mt-4 truncate text-xs text-slate-500">${escapeHtml(item.source)}</p>
-            </article>
-          `;
-        })
-        .join("");
-    }
-
-    function setBuilding(isBuilding) {
-      appState.isBuilding = isBuilding;
-      document.getElementById("buildButton").disabled = isBuilding;
-      document.getElementById("buildSpinner").classList.toggle("hidden", !isBuilding);
-      document.getElementById("buildButtonText").textContent = isBuilding ? "Building..." : "Build Knowledge Base";
-    }
-
-    function setStatus(message, type) {
-      const status = document.getElementById("status");
-      const color =
-        type === "success" ? "text-emerald-300" :
-        type === "error" ? "text-rose-300" :
-        "text-slate-400";
-
-      status.className = `mt-4 min-h-5 text-sm ${color}`;
-      status.textContent = message;
-    }
-
-    function renderPipelineStages() {
-      document.getElementById("pipelineStages").innerHTML = pipelineStages
-        .map(
-          (stage, index) => `
-            <div id="pipelineStage${index}" class="rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-xs font-medium text-slate-500">
-              ${stage}
-            </div>
-          `
-        )
-        .join("");
-    }
-
-    function startPipeline() {
-      const panel = document.getElementById("pipelinePanel");
-      const researchMode = document.querySelector('input[name="researchMode"]:checked').value;
-      const pipelineTitle = panel.querySelector("p");
-      pipelineTitle.textContent = researchMode === "agentic" ? "Agentic Research Active" : "Research Pipeline Active";
-      panel.classList.remove("hidden");
-      appState.pipelineStage = 0;
-      setPipelineStage(0);
-      clearInterval(appState.pipelineTimer);
-      appState.pipelineTimer = setInterval(() => {
-        appState.pipelineStage = Math.min(appState.pipelineStage + 1, pipelineStages.length - 1);
-        setPipelineStage(appState.pipelineStage);
-      }, 2200);
-    }
-
-    function stopPipeline(finalStage) {
-      clearInterval(appState.pipelineTimer);
-      appState.pipelineTimer = null;
-
-      if (finalStage) {
-        setPipelineStage(pipelineStages.indexOf(finalStage));
-      } else {
-        document.getElementById("pipelinePanel").classList.add("hidden");
-      }
-    }
-
-    function setPipelineStage(activeIndex) {
-      const safeIndex = Math.max(0, activeIndex);
-      document.getElementById("pipelineSummary").textContent = pipelineStages[safeIndex] || "Building KB";
-
-      pipelineStages.forEach((stage, index) => {
-        const item = document.getElementById(`pipelineStage${index}`);
-        const isActive = index === safeIndex;
-        const isDone = index < safeIndex;
-        item.className = isActive
-          ? "rounded-lg border border-cyan-300/40 bg-cyan-300/10 px-3 py-2 text-xs font-semibold text-cyan-100"
-          : isDone
-            ? "rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-xs font-medium text-emerald-200"
-            : "rounded-lg border border-white/10 bg-slate-950/50 px-3 py-2 text-xs font-medium text-slate-500";
-      });
-    }
-
-    function renderSources(sources) {
-      const panel = document.getElementById("sourcesPanel");
-      const list = document.getElementById("sourcesList");
-      panel.classList.remove("hidden");
-      document.getElementById("sourcesSummary").textContent = `${sources.length} total`;
-
-      list.innerHTML = sources
-        .map((source, index) => {
-          const snippet = source.snippet && source.snippet.length > 220
-            ? `${source.snippet.slice(0, 220)}...`
-            : source.snippet;
-
-          return `
-            <a href="${escapeAttribute(source.url)}" target="_blank" class="rounded-lg border border-white/10 bg-slate-950/60 p-3 transition hover:border-cyan-300/40">
-              <p class="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">Source ${index + 1}</p>
-              <p class="mt-1 text-sm font-medium text-slate-100">${escapeHtml(source.title || source.url)}</p>
-              <p class="mt-1 truncate text-xs text-cyan-300">${escapeHtml(source.url)}</p>
-              ${source.citation ? `<p class="mt-2 text-xs font-medium text-emerald-300">Citation ${escapeHtml(source.citation)}</p>` : ""}
-              ${snippet ? `<p class="mt-2 text-xs leading-5 text-slate-400">${escapeHtml(snippet)}</p>` : ""}
-            </a>
-          `;
-        })
-        .join("");
-    }
-
-    function clearSources() {
-      document.getElementById("sourcesPanel").classList.add("hidden");
-      document.getElementById("sourcesList").innerHTML = "";
-      document.getElementById("sourcesSummary").textContent = "0 total";
-    }
-
-    function renderResearchSummary(summary) {
-      if (!summary) {
-        clearResearchSummary();
-        return;
-      }
-
-      const trimmed = summary.length > 1200 ? `${summary.slice(0, 1200)}...` : summary;
-      document.getElementById("summaryPanel").classList.remove("hidden");
-      document.getElementById("researchSummary").textContent = trimmed;
-    }
-
-    function clearResearchSummary() {
-      document.getElementById("summaryPanel").classList.add("hidden");
-      document.getElementById("researchSummary").textContent = "";
-    }
-
-    function getLoadingMessage(isTopicMode, researchMode) {
-      const extractionMode = document.querySelector('input[name="extractionMode"]:checked').value;
-      if (!isTopicMode && extractionMode === "crawl") return "Crawling site pages and preparing chunks...";
-      if (!isTopicMode) return "Scraping source and preparing chunks...";
-      if (researchMode === "agentic") return "Running agentic research and building context...";
-      return "Searching the web and building research context...";
-    }
-
-    function isHttpUrl(value) {
-      try {
-        const url = new URL(value);
-        return url.protocol === "http:" || url.protocol === "https:";
-      } catch {
-        return false;
-      }
-    }
-
-    function updateStats(next) {
-      if (typeof next.sources === "number") appState.sources = next.sources;
-      if (typeof next.chunks === "number") appState.chunks = next.chunks;
-      if (typeof next.results === "number") appState.lastResultCount = next.results;
-
-      document.getElementById("sourcesStat").textContent = appState.sources;
-      document.getElementById("chunksStat").textContent = appState.chunks;
-      document.getElementById("resultsStat").textContent = appState.lastResultCount;
-    }
-
-    function updateResultCount(count, query) {
-      const resultCount = document.getElementById("resultCount");
-      if (!appState.hasBuilt) {
-        resultCount.textContent = "Build a dataset to start searching.";
-        return;
-      }
-
-      resultCount.textContent = query
-        ? `${count} result${count === 1 ? "" : "s"} for "${query}"`
-        : `${count} result${count === 1 ? "" : "s"} shown`;
-    }
-
-    function renderEmptyState(message) {
-      document.getElementById("results").innerHTML = `
-        <div class="rounded-lg border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
-          <p class="text-sm font-medium text-slate-300">${escapeHtml(message)}</p>
-        </div>
-      `;
-    }
-
-    function escapeHtml(text) {
-      return String(text)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    function escapeAttribute(text) {
-      return escapeHtml(text).replaceAll("`", "&#096;");
-    }
-  </script>
+  <script src="/app.js"></script>
 </body>
 </html>

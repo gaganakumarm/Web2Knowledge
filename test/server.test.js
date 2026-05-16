@@ -1,16 +1,26 @@
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
+
+process.env.KB_DB_PATH = path.join(
+  os.tmpdir(),
+  `web2knowledge-test-${process.pid}.sqlite`
+);
 
 const {
   app,
   chunkText,
   clearKnowledgeBase,
+  closeDatabaseForTest,
   extractResearchSummary,
   extractSearchResults,
   isValidHttpUrl,
   setKnowledgeBaseForTest,
 } = require("../server");
+
+const { loadChunks } = require("../utils/storage");
 
 function startTestServer() {
   const server = http.createServer(app);
@@ -37,6 +47,25 @@ test("home route serves the browser app", async () => {
     assert.match(response.headers.get("content-type"), /text\/html/);
     assert.match(html, /Web2Knowledge/);
     assert.match(html, /Build Knowledge Base/);
+    assert.match(html, /Clear Dataset/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("frontend assets are served", async () => {
+  const server = await startTestServer();
+
+  try {
+    const scriptResponse = await fetch(`${server.baseUrl}/app.js`);
+    const styleResponse = await fetch(`${server.baseUrl}/styles.css`);
+    const script = await scriptResponse.text();
+    const styles = await styleResponse.text();
+
+    assert.equal(scriptResponse.status, 200);
+    assert.equal(styleResponse.status, 200);
+    assert.match(script, /async function buildKB/);
+    assert.match(styles, /color-scheme: dark/);
   } finally {
     await server.close();
   }
@@ -106,6 +135,60 @@ test("export route includes generated chunks and metadata", async () => {
     clearKnowledgeBase();
     await server.close();
   }
+});
+
+test("dataset route clears persisted chunks", async () => {
+  const server = await startTestServer();
+
+  try {
+    setKnowledgeBaseForTest([
+      {
+        id: "clear-me",
+        title: "Temporary",
+        source: "https://example.com",
+        content: "Temporary content",
+        chunkIndex: 0,
+      },
+    ]);
+
+    const response = await fetch(`${server.baseUrl}/api/dataset`, {
+      method: "DELETE",
+    });
+    const data = await response.json();
+    const exportResponse = await fetch(`${server.baseUrl}/api/export`);
+    const exported = await exportResponse.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.success, true);
+    assert.equal(data.totalChunks, 0);
+    assert.equal(exported.totalChunks, 0);
+    assert.deepEqual(exported.data, []);
+  } finally {
+    clearKnowledgeBase();
+    await server.close();
+  }
+});
+
+test("knowledge base chunks persist to SQLite storage", () => {
+  setKnowledgeBaseForTest([
+    {
+      id: "persisted-chunk",
+      title: "Persisted Docs",
+      source: "https://example.com/docs",
+      content: "Stored chunk content",
+      chunkIndex: 0,
+      generatedJson: { section: "intro" },
+    },
+  ]);
+
+  closeDatabaseForTest();
+  const chunks = loadChunks();
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].id, "persisted-chunk");
+  assert.deepEqual(chunks[0].generatedJson, { section: "intro" });
+
+  clearKnowledgeBase();
 });
 
 test("build route rejects missing input before calling Anakin", async () => {
@@ -213,6 +296,131 @@ test("search route matches title, source, and content", async () => {
   }
 });
 
+test("search route ranks semantic-style token matches", async () => {
+  const server = await startTestServer();
+
+  try {
+    setKnowledgeBaseForTest([
+      {
+        id: "1",
+        title: "Next.js Routing",
+        source: "https://nextjs.org/docs",
+        content: "File-system routing and dynamic segments",
+        chunkIndex: 0,
+      },
+      {
+        id: "2",
+        title: "Utility CSS",
+        source: "https://tailwindcss.com/docs",
+        content: "Classes compose visual styles",
+        chunkIndex: 0,
+      },
+    ]);
+
+    const response = await fetch(`${server.baseUrl}/api/search?q=routes`);
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.results.length, 1);
+    assert.equal(data.results[0].id, "1");
+    assert.equal(typeof data.results[0].score, "number");
+  } finally {
+    clearKnowledgeBase();
+    await server.close();
+  }
+});
+
+test("ask route rejects missing question", async () => {
+  const server = await startTestServer();
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(data.error, "Question is required");
+  } finally {
+    await server.close();
+  }
+});
+
+test("ask route returns an extractive answer with citations", async () => {
+  const server = await startTestServer();
+
+  try {
+    setKnowledgeBaseForTest([
+      {
+        id: "1",
+        title: "Next.js Routing",
+        source: "https://nextjs.org/docs",
+        content:
+          "Dynamic routes let pages match variable URL segments. Static assets are served from the public folder.",
+        chunkIndex: 0,
+      },
+      {
+        id: "2",
+        title: "Tailwind Docs",
+        source: "https://tailwindcss.com/docs",
+        content: "Utility classes compose visual styles.",
+        chunkIndex: 0,
+      },
+    ]);
+
+    const response = await fetch(`${server.baseUrl}/api/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "How do dynamic routes work?" }),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.match(data.answer, /Dynamic routes/);
+    assert.equal(data.citations.length, 1);
+    assert.equal(data.citations[0].source, "https://nextjs.org/docs");
+  } finally {
+    clearKnowledgeBase();
+    await server.close();
+  }
+});
+
+test("ask route avoids answering unrelated questions from weak matches", async () => {
+  const server = await startTestServer();
+
+  try {
+    setKnowledgeBaseForTest([
+      {
+        id: "1",
+        title: "AI Agents",
+        source: "https://example.com/ai-agents",
+        content:
+          "AI agents can automate software development workflows and support code review.",
+        chunkIndex: 0,
+      },
+    ]);
+
+    const response = await fetch(`${server.baseUrl}/api/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "What is Tailwind CSS?" }),
+    });
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(
+      data.answer,
+      "I could not find matching context in the current knowledge base."
+    );
+    assert.deepEqual(data.citations, []);
+  } finally {
+    clearKnowledgeBase();
+    await server.close();
+  }
+});
+
 test("URL validation accepts only http and https URLs", () => {
   assert.equal(isValidHttpUrl("https://tailwindcss.com/docs"), true);
   assert.equal(isValidHttpUrl("http://example.com"), true);
@@ -222,10 +430,29 @@ test("URL validation accepts only http and https URLs", () => {
   assert.equal(isValidHttpUrl(""), false);
 });
 
-test("chunkText cleans excessive blank lines and chunks content", () => {
-  const chunks = chunkText("one\n\n\n\ntwo\nthree", 5);
+test("chunkText cleans excessive blank lines and chunks by blocks", () => {
+  const chunks = chunkText("one\n\n\n\ntwo\nthree", 10);
 
-  assert.deepEqual(chunks, ["one\n\n", "two\nt", "hree"]);
+  assert.deepEqual(chunks, ["one", "two\nthree"]);
+});
+
+test("chunkText keeps markdown sections together when possible", () => {
+  const chunks = chunkText(
+    "# Intro\n\nThis is the opening section.\n\n## Details\n\nThese details should stay near their heading.",
+    60
+  );
+
+  assert.deepEqual(chunks, [
+    "# Intro\n\nThis is the opening section.",
+    "## Details\n\nThese details should stay near their heading.",
+  ]);
+});
+
+test("chunkText splits oversized paragraphs near word boundaries", () => {
+  const chunks = chunkText("alpha beta gamma delta epsilon", 16);
+
+  assert.deepEqual(chunks, ["alpha beta gamma", "delta epsilon"]);
+  assert.ok(chunks.every((chunk) => chunk.length <= 16));
 });
 
 test("chunkText returns empty array for empty text", () => {

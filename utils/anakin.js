@@ -88,7 +88,11 @@ function ensureHttpUrl(url) {
 function formatAnakinError(error) {
   const status = error.response?.status;
   const data = error.response?.data;
-  const message = data?.message || data?.error || error.message;
+  const message =
+    data?.message ||
+    data?.error ||
+    error.message ||
+    (status ? `HTTP ${status}` : "Unknown Anakin error");
 
   if (status === 401 || data?.error === "unauthorized") {
     const authError = new Error(
@@ -208,6 +212,27 @@ async function pollCrawlJob(jobId) {
   throw new Error("Anakin crawl job timed out after 120 seconds.");
 }
 
+async function pollAgenticSearchJob(jobId) {
+  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt += 1) {
+    const result = await getJson(`/agentic-search/${jobId}`);
+    const status = String(result.status || "").toLowerCase();
+
+    if (DONE_STATUSES.has(status)) {
+      return result;
+    }
+
+    if (FAILED_STATUSES.has(status)) {
+      throw new Error(
+        result.error || result.message || "Anakin agentic search job failed."
+      );
+    }
+
+    await wait(POLL_INTERVAL_MS);
+  }
+
+  throw new Error("Anakin agentic search job timed out after 120 seconds.");
+}
+
 async function scrapeUrl(url) {
   ensureHttpUrl(url);
 
@@ -282,12 +307,32 @@ async function searchWeb(query) {
 }
 
 async function agenticSearch(query) {
-  return postJson("/agentic-search", {
+  const data = await postJson("/agentic-search", {
     prompt: query,
     query,
     depth: "comprehensive",
     max_sources: 5,
   });
+
+  const jobId = data.jobId || data.job_id || data.id;
+
+  if (jobId) {
+    const status = String(data.status || "").toLowerCase();
+
+    if (DONE_STATUSES.has(status)) {
+      return data;
+    }
+
+    if (FAILED_STATUSES.has(status)) {
+      throw new Error(
+        data.error || data.message || "Anakin agentic search job failed."
+      );
+    }
+
+    return pollAgenticSearchJob(jobId);
+  }
+
+  return data;
 }
 
 module.exports = {

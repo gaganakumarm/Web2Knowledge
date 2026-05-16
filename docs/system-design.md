@@ -2,17 +2,17 @@
 
 ## System Overview
 
-Web2Knowledge is a lightweight Express application that converts public web sources into an in-memory, searchable, downloadable knowledge base.
+Web2Knowledge is an Express application that converts public URLs and research topics into a persistent, searchable, exportable knowledge base.
 
-The architecture intentionally stays simple:
+The current architecture is intentionally lightweight but product-ready:
 
 - Express backend.
-- Plain HTML frontend.
-- Tailwind CSS.
-- Vanilla JavaScript.
-- In-memory chunk store.
-- Anakin APIs for search, agentic research, and URL scraping.
-- Optional Anakin Crawl for limited multi-page extraction.
+- Static frontend served from `public/`.
+- Local CSS and vanilla JavaScript.
+- In-memory active dataset backed by SQLite persistence.
+- Anakin APIs for search, agentic research, scraping, and crawling.
+- Local URL fetch fallback for direct URL extraction.
+- Ranked local search and extractive ask flow.
 
 ---
 
@@ -20,35 +20,49 @@ The architecture intentionally stays simple:
 
 ```mermaid
 flowchart TD
-  UI[Browser UI] --> API[Express API]
+  UI[Browser UI] --> Static[Static files: index.html, styles.css, app.js]
+  UI --> API[Express API]
   API --> Build[POST /api/build]
   API --> Topic[POST /api/topic-build]
   API --> Search[GET /api/search]
+  API --> Ask[POST /api/ask]
   API --> Export[GET /api/export]
+  API --> Clear[DELETE /api/dataset]
 
   Build --> UrlCheck{Valid http/https URL?}
-  UrlCheck -->|Yes + scrape mode| Scraper[Anakin URL Scraper]
-  UrlCheck -->|Yes + crawl mode| Crawl[Anakin Crawl]
+  UrlCheck -->|Yes + scrape| Scraper[Anakin URL Scraper]
+  UrlCheck -->|Yes + crawl| Crawl[Anakin Crawl]
   UrlCheck -->|No| Topic
 
-  Topic --> Mode{Research Mode}
+  Scraper -->|Non-auth failure| LocalFetch[Local fetch fallback]
+  Scraper --> Poll[Poll scrape job]
+  Crawl --> CrawlPoll[Poll crawl job]
+
+  Topic --> Mode{Research mode}
   Mode -->|Standard| SearchAPI[Anakin Search API]
   Mode -->|Agentic| AgenticAPI[Anakin Agentic Search API]
-  AgenticAPI -->|Fallback when needed| SearchAPI
+  AgenticAPI --> AgentPoll[Poll agentic job]
+  AgentPoll -->|Timeout/failure/no URLs| SearchAPI
 
-  Scraper --> Poll[Poll async scrape job]
-  Crawl --> CrawlPoll[Poll async crawl job]
-  SearchAPI --> Sources[Normalize valid source URLs]
-  AgenticAPI --> Sources
-  Sources --> Seed[Seed chunks from summaries/snippets]
+  SearchAPI --> Sources[Normalize valid URLs]
+  AgentPoll --> Sources
+  Sources --> Seed[Seed chunks from source metadata]
   Sources --> OptionalScrape[Optional top-source scrape]
   OptionalScrape --> Poll
-  Poll --> Chunk[Chunk content]
-  CrawlPoll --> Chunk
-  Seed --> KB[(In-memory Knowledge Base)]
-  Chunk --> KB
-  Search --> KB
-  Export --> Download[Download JSON dataset]
+
+  Poll --> Normalize[Normalize extracted content]
+  CrawlPoll --> Normalize
+  LocalFetch --> Normalize
+  Normalize --> Chunk[Markdown-aware chunking]
+  Seed --> Store[(Active dataset)]
+  Chunk --> Store
+  Store --> SQLite[(SQLite data/web2knowledge.sqlite)]
+  SQLite --> Hydrate[Hydrate saved dataset on startup]
+  Hydrate --> Store
+  Search --> Store
+  Ask --> Store
+  Export --> Store
+  Clear --> Store
 ```
 
 ---
@@ -57,28 +71,29 @@ flowchart TD
 
 ## 1. Frontend
 
-File:
+Files:
 
 ```text
 public/index.html
+public/styles.css
+public/app.js
 ```
 
 Responsibilities:
 
-- Accept URL or topic input.
-- Let the user select URL or Topic Search.
-- Let the user select Standard Search or Deep Research.
-- Show pipeline status.
-- Show discovered sources.
-- Show research summaries when available.
-- Search generated chunks.
-- Download the current dataset.
+- Render the product app shell.
+- Let users build from URL or topic.
+- Let users choose URL extraction, crawl, standard research, or deep research.
+- Show saved dataset stats.
+- Load saved chunks on page load.
+- Provide top-level tabs for Build, Workspace, Ask, and Guide.
+- Search chunks.
+- Ask questions over the active dataset.
+- Show Results, Sources, and Summary workspace tabs.
+- Clear and export the dataset.
+- Render the built-in user guide.
 
-Frontend technologies:
-
-- HTML
-- Tailwind CSS CDN
-- Vanilla JavaScript
+The frontend uses local CSS and does not depend on Tailwind CDN or a frontend build process.
 
 ---
 
@@ -92,14 +107,18 @@ server.js
 
 Responsibilities:
 
-- Serve the static frontend.
-- Route build requests.
-- Validate URLs.
-- Call Anakin Search, Agentic Search, and URL Scraper.
-- Poll async scrape jobs through the utility layer.
-- Chunk extracted or discovered content.
-- Store chunks in memory.
-- Serve search and export APIs.
+- Serve static frontend assets.
+- Validate inputs.
+- Route URL builds and topic builds.
+- Call the Anakin utility layer.
+- Use local fallback extraction when direct URL scraping fails with a non-auth error.
+- Chunk content by markdown-like structure.
+- Maintain the active in-memory dataset.
+- Persist chunks through the storage layer.
+- Rank search results.
+- Build extractive answers with citations.
+- Guard against unrelated low-confidence ask responses.
+- Export and clear datasets.
 
 ---
 
@@ -113,16 +132,50 @@ utils/anakin.js
 
 Responsibilities:
 
-- Add Anakin API headers.
+- Read Anakin API key from environment.
+- Build Anakin request headers.
 - Validate API key presence.
+- Validate direct scrape URLs.
 - Call URL Scraper.
-- Call Crawl for small multi-page URL extraction.
-- Poll async URL Scraper jobs.
-- Poll async Crawl jobs.
+- Call Crawl.
 - Call Standard Search.
 - Call Agentic Search.
-- Normalize scrape responses.
-- Return clear errors for auth, invalid URL, and timeouts.
+- Poll async URL Scraper jobs.
+- Poll async Crawl jobs.
+- Poll async Agentic Search jobs.
+- Normalize scraper/crawl responses.
+- Return actionable errors for auth, endpoint, timeout, and API failures.
+
+---
+
+## 4. Storage Layer
+
+File:
+
+```text
+utils/storage.js
+```
+
+Responsibilities:
+
+- Create/open SQLite database.
+- Create the `chunks` table.
+- Load saved chunks at server startup.
+- Save the active dataset after mutations.
+- Clear chunks.
+- Close the database during tests.
+
+Default database path:
+
+```text
+data/web2knowledge.sqlite
+```
+
+Tests can override this with:
+
+```text
+KB_DB_PATH
+```
 
 ---
 
@@ -130,9 +183,7 @@ Responsibilities:
 
 ## `GET /health`
 
-Returns basic service status.
-
-Response:
+Returns:
 
 ```json
 {
@@ -141,16 +192,9 @@ Response:
 }
 ```
 
----
-
 ## `POST /api/build`
 
-Builds the knowledge base from direct URL input.
-
-Behavior:
-
-- If input is a valid `http` or `https` URL, use URL scraping.
-- If input is plain text, auto-route to topic research.
+Builds from URL input. Plain text input is routed to topic mode.
 
 Payload:
 
@@ -159,76 +203,93 @@ Payload:
   "input": "https://tailwindcss.com/docs",
   "mode": "url",
   "researchMode": "standard",
-  "extractionMode": "crawl"
+  "extractionMode": "scrape"
 }
 ```
 
----
+URL behavior:
+
+- `extractionMode: "scrape"` uses Anakin URL Scraper.
+- `extractionMode: "crawl"` uses Anakin Crawl.
+- Non-auth URL scrape failures attempt local fetch fallback.
+- Successful builds replace the active dataset.
 
 ## `POST /api/topic-build`
 
-Builds the knowledge base from a topic.
-
-Behavior:
-
-- `researchMode: "standard"` uses Anakin Search.
-- `researchMode: "agentic"` tries Anakin Agentic Search first.
-- Agentic failures fall back to Standard Search.
-- Valid source URLs are extracted and filtered.
-- Topic chunks are seeded from search summaries/snippets.
-- The top source may be scraped for richer content with a short timeout.
+Builds from topic input.
 
 Payload:
 
 ```json
 {
-  "input": "Next.js routing",
+  "input": "AI agents for software development",
   "mode": "topic",
   "researchMode": "agentic"
 }
 ```
 
----
+Topic behavior:
+
+- Standard mode uses Anakin Search.
+- Agentic mode uses Anakin Agentic Search first.
+- Agentic timeout/failure/no URLs falls back to Standard Search.
+- Sources are normalized, filtered to HTTP/HTTPS, deduped, and limited.
+- Source metadata seeds initial chunks.
+- The top discovered source is scraped with a short timeout.
 
 ## `GET /api/search`
 
-Searches the current in-memory knowledge base.
-
-Example:
+Returns saved chunks when no query is provided:
 
 ```text
-/api/search?q=tailwind
+/api/search
+```
+
+Searches ranked chunks when a query is provided:
+
+```text
+/api/search?q=javascript
 ```
 
 Search behavior:
 
-- Keyword matching.
-- Checks title, content, and source URL.
-- Returns up to 20 matching chunks.
+- Tokenizes query and document text.
+- Removes common stopwords.
+- Applies light token normalization.
+- Uses cosine-style token similarity.
+- Adds boosts for exact query matches in title/content/source.
+- Returns up to 20 results.
 
----
+## `POST /api/ask`
 
-## `GET /api/export`
+Answers from the active dataset.
 
-Downloads the current knowledge base as JSON.
-
-Headers:
-
-```text
-Content-Type: application/json
-Content-Disposition: attachment; filename="web2knowledge-dataset.json"
-```
-
-Structure:
+Payload:
 
 ```json
 {
-  "project": "Web2Knowledge",
-  "generatedAt": "2026-05-10T00:00:00.000Z",
-  "totalChunks": 0,
-  "data": []
+  "question": "What is JavaScript?"
 }
 ```
+
+Ask behavior:
+
+- Retrieves top-ranked chunks.
+- Extracts and ranks candidate sentences.
+- Returns up to three citations.
+- Returns a safe no-context answer when confidence is too low.
+
+## `GET /api/export`
+
+Downloads:
+
+```text
+web2knowledge-dataset.json
+```
+
+## `DELETE /api/dataset`
+
+Clears the active dataset from memory and SQLite.
 
 ---
 
@@ -241,75 +302,63 @@ sequenceDiagram
   participant U as User
   participant UI as Browser UI
   participant API as Express API
-  participant A as Anakin URL Scraper
-  participant C as Anakin Crawl
-  participant KB as In-memory KB
+  participant A as Anakin URL Scraper/Crawl
+  participant F as Local Fetch Fallback
+  participant S as SQLite Storage
 
-  U->>UI: Enter https URL
+  U->>UI: Enter public URL
   UI->>API: POST /api/build
   API->>API: Validate http/https URL
-  alt Single URL Scrape
-  API->>A: POST /v1/url-scraper
-  A-->>API: jobId + pending status
-  loop Until completed
-    API->>A: GET /v1/url-scraper/{jobId}
-    A-->>API: job status/result
-  end
-  else Site Crawl
-    API->>C: POST /v1/crawl
-    C-->>API: jobId + pending status
-    loop Until completed
-      API->>C: GET /v1/crawl/{jobId}
-      C-->>API: crawl status/results
+  API->>A: Submit scrape/crawl request
+  alt Async job
+    loop Until completed or timeout
+      API->>A: Poll job endpoint
+      A-->>API: Job status/result
     end
   end
-  API->>API: Normalize Markdown
-  API->>API: Chunk content
-  API->>KB: Store chunks
-  API-->>UI: Build summary
+  alt Non-auth scrape failure
+    API->>F: Fetch URL directly
+    F-->>API: HTML/text
+  end
+  API->>API: Normalize readable text
+  API->>API: Chunk by markdown structure
+  API->>S: Save chunks
+  API-->>UI: Build response
 ```
 
----
-
-## Standard Topic Search
+## Topic Mode
 
 ```mermaid
 flowchart TD
-  A[User enters topic] --> B[POST /api/topic-build]
-  B --> C[Anakin Search API]
-  C --> D[Recursively extract source candidates]
-  D --> E[Filter valid http/https URLs]
-  E --> F[Limit to top sources]
-  F --> G[Seed chunks from titles and snippets]
-  F --> H[Optional short scrape of top source]
-  H --> I[Append richer chunks when available]
-  G --> J[(Unified Knowledge Base)]
-  I --> J
+  A[Topic input] --> B{Research mode}
+  B -->|Standard| C[Anakin Search]
+  B -->|Agentic| D[Anakin Agentic Search]
+  D -->|Fallback| C
+  C --> E[Normalize sources]
+  D --> E
+  E --> F[Seed chunks from title/snippet/source]
+  E --> G[Scrape top source]
+  G --> H[Append extracted chunks]
+  F --> I[(SQLite-backed active dataset)]
+  H --> I
 ```
 
----
-
-## Deep Research Mode
+## Ask Flow
 
 ```mermaid
 flowchart TD
-  A[User selects Deep Research] --> B[POST /api/topic-build]
-  B --> C[Anakin Agentic Search API]
-  C -->|Success| D[Extract summary, citations, and URLs]
-  C -->|Failure or no valid URLs| E[Fallback to Standard Search]
-  E --> F[Extract valid source URLs]
-  D --> G[Seed summary and source chunks]
-  F --> G
-  G --> H[Optional short scrape of top source]
-  H --> I[(Unified Knowledge Base)]
-  G --> I
+  A[Question] --> B[Rank chunks]
+  B --> C{Top score high enough?}
+  C -->|No| D[No matching context answer]
+  C -->|Yes| E[Split top chunks into sentences]
+  E --> F[Rank candidate sentences]
+  F --> G[Compose extractive answer]
+  G --> H[Return citations]
 ```
 
 ---
 
 ## Chunk Model
-
-Each chunk follows this structure:
 
 ```json
 {
@@ -322,12 +371,6 @@ Each chunk follows this structure:
 }
 ```
 
-The MVP stores these chunks in:
-
-```js
-let knowledgeBase = [];
-```
-
 ---
 
 ## Error Handling
@@ -336,84 +379,55 @@ The system handles:
 
 - Missing Anakin API key.
 - Invalid URL input.
-- Topic text accidentally sent through URL mode.
-- Empty Anakin Search results.
-- Agentic Search failure.
+- Topic input accidentally submitted through URL build.
+- Empty source discovery results.
+- Agentic Search failure or timeout.
 - Slow topic source scraping.
-- Async scrape job timeout.
-- Async crawl job timeout.
-
-Important design choices:
-
-- URL mode is strict because the user expects direct scraping.
-- Topic mode is resilient because discovered web pages can be slow or noisy.
-- Agentic Search has fallback to Standard Search.
-- Topic builds can succeed even if some discovered sources fail.
+- URL Scraper job timeout.
+- Crawl job timeout.
+- Direct URL scrape non-auth failures through local fallback.
+- Unrelated ask questions through a low-confidence guard.
 
 ---
 
 ## Test Coverage
 
-The project includes a lightweight Node test suite.
-
 Run:
 
 ```powershell
-npm test
+npm.cmd test
 ```
 
-The tests avoid live Anakin calls and verify:
+Current automated coverage: `23` tests.
 
-- Homepage route.
-- Express health route.
-- Export download headers and dataset shape.
-- Exported chunk metadata.
-- Request validation before Anakin calls.
-- Topic request validation.
-- Search endpoint behavior.
+The suite verifies:
+
+- Homepage and static assets.
+- Health route.
+- Export route.
+- Dataset clear route.
+- SQLite persistence.
+- Request validation.
+- Search behavior.
+- Ask behavior.
+- Unrelated question guard.
 - URL validation.
-- Chunk generation.
-- Recursive source extraction and filtering.
-- Citation extraction.
-- Research summary normalization.
-
----
-
-## Performance Strategy
-
-To keep demos fast:
-
-- Topic mode limits discovered URLs.
-- Topic mode seeds chunks from search results immediately.
-- Topic mode only attempts a short scrape of the top source.
-- Slow topic scrapes are skipped.
-- Direct URL mode keeps the full scrape behavior.
-- Site Crawl mode is available when broader extraction matters more than speed.
+- Markdown-aware chunking.
+- Search result normalization.
+- Citation and summary extraction.
 
 ---
 
 ## Security Notes
 
-- API keys are loaded from `.env`.
-- `.env` should not be committed.
-- User input is escaped before rendering in the frontend.
-- URL validation prevents non-HTTP schemes from reaching the scraper.
-
----
-
-## Future System Extensions
-
-- Persistent storage.
-- Project history.
-- Embeddings and semantic search.
-- RAG chat over generated datasets.
-- Background scrape queues.
-- Source quality scoring.
-- Multi-source deduplication.
-- Scheduled refresh jobs.
+- `.env` is ignored by git.
+- Anakin key is read server-side only.
+- User-rendered content is escaped in the frontend.
+- Only `http` and `https` URLs are accepted for scraping.
+- Local fallback is skipped for auth errors so invalid API keys are not hidden.
 
 ---
 
 ## System Summary
 
-Web2Knowledge uses Anakin APIs as the research and extraction engine, while the local Express app handles validation, fallback logic, chunking, search, and dataset export. The result is a simple but extensible AI research product that can transform URLs or topics into searchable knowledge in a demo-friendly workflow.
+Web2Knowledge uses Anakin as the discovery and extraction engine, then keeps the product workflow local and lightweight: Express routes, local static UI, SQLite persistence, ranked search, extractive ask, and exportable JSON. It is designed to be understandable, demo-friendly, and extensible without requiring a frontend framework or vector database in the current version.

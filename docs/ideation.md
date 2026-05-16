@@ -2,14 +2,19 @@
 
 ## Project Context
 
-Web2Knowledge is an AI research dataset builder that converts public URLs and open-ended topics into searchable, AI-ready knowledge chunks.
+Web2Knowledge is an AI research dataset builder that converts public URLs and open-ended topics into searchable, persistent, AI-ready knowledge chunks.
 
-The project started as a universal web-to-knowledge pipeline and evolved into a demo-ready research product with three practical modes:
+The product has evolved from a simple web-to-knowledge demo into a lightweight research workspace with:
 
 - Direct URL scraping.
 - Limited site crawling.
 - Standard topic search.
-- Deep Research using Agentic Search.
+- Deep Research using Agentic Search with fallback.
+- SQLite-backed dataset persistence.
+- Ranked local search.
+- Extractive ask with citations.
+- JSON export.
+- Product-style UI with tabs and a built-in user guide.
 
 The goal is to make public web knowledge usable for AI assistants, RAG systems, research workflows, and developer tooling without adding heavy infrastructure.
 
@@ -25,6 +30,8 @@ Developers, researchers, and AI builders often need to turn public web content i
 - Remove noise.
 - Split text into chunks.
 - Preserve source links.
+- Search the extracted material.
+- Ask questions over the material.
 - Export to JSON or a RAG pipeline.
 
 Documentation sites, blogs, and public articles are useful, but their content is scattered across pages and stored in noisy HTML.
@@ -33,17 +40,20 @@ Documentation sites, blogs, and public articles are useful, but their content is
 
 ## Selected Solution
 
-Web2Knowledge solves this by combining Anakin APIs with a small Node.js processing layer.
+Web2Knowledge combines Anakin APIs with a small Node.js processing and product layer.
 
 The system:
 
 1. Accepts either a direct URL or a topic.
-2. Uses Anakin Search or Agentic Search to discover sources for topics.
+2. Uses Anakin Search or Agentic Search to discover topic sources.
 3. Uses Anakin URL Scraper for direct URL extraction and optional source enrichment.
 4. Uses Anakin Crawl for optional limited multi-page extraction.
-5. Converts content into normalized chunks with generated JSON metadata when available.
-6. Stores chunks in memory for fast local search.
-7. Exports the current knowledge base as downloadable JSON.
+5. Falls back to local URL fetch for non-auth direct scrape failures.
+6. Converts content into normalized chunks with generated JSON metadata when available.
+7. Persists chunks to SQLite.
+8. Searches the active dataset with ranked local retrieval.
+9. Answers questions with citations from retrieved chunks.
+10. Exports the current knowledge base as downloadable JSON.
 
 ---
 
@@ -62,49 +72,64 @@ Web2Knowledge was chosen because it demonstrates a broad, reusable workflow:
 - Research discovery.
 - Web extraction.
 - AI-ready cleaning.
+- Persistent dataset storage.
 - Searchable chunking.
+- Question answering.
 - Dataset export.
 
 This makes the product useful beyond one narrow domain.
 
 ---
 
-## Core Product Idea
+## Current Product Shape
 
-The product should feel like a simple AI research workbench:
+The product should feel like a focused AI research workbench:
 
 - Paste a URL for direct extraction.
 - Type a topic for web research.
-- Toggle Deep Research when a richer summary and citations are needed.
+- Toggle Deep Research when a richer agentic attempt is useful.
 - Search the generated knowledge base.
-- Download the dataset.
+- Ask questions grounded in the active dataset.
+- Export the dataset.
+- Clear and rebuild quickly.
+- Learn the workflow from the built-in guide.
 
-The product is intentionally lightweight: no database, no auth, no React, and no vector store in the MVP.
+The product remains intentionally lightweight:
+
+- No frontend framework.
+- No separate build step.
+- No auth yet.
+- No vector database yet.
+- SQLite is used for a single active saved dataset.
 
 ```mermaid
 mindmap
   root((Web2Knowledge))
-    URL Research
-      Direct page scraping
-      Async scraper polling
-      Markdown extraction
-    Site Crawl
-      Multi-page sample
-      Async crawl polling
-      Broader source coverage
-    Topic Research
-      Standard Search
-      Valid source discovery
-      Fast snippet chunks
-    Deep Research
-      Agentic Search
-      Research summaries
+    Build Dataset
+      URL scrape
+      Site crawl
+      Topic search
+      Deep research
+      Local fallback
+    Dataset Store
+      Active dataset
+      SQLite persistence
+      Clear dataset
+      Export JSON
+    Explore Dataset
+      Ranked search
+      Results tab
+      Sources tab
+      Summary tab
+    Ask
+      Extractive answer
       Citations
-      Standard fallback
-    Dataset Output
-      Searchable chunks
-      Source links
-      Downloadable JSON
+      Low-confidence guard
+    Product UI
+      Local CSS
+      Tabs
+      User guide
+      Examples
 ```
 
 ---
@@ -117,10 +142,11 @@ Used for direct page extraction.
 
 Important behavior:
 
-- The scraper returns async jobs.
-- The backend must poll `GET /url-scraper/{jobId}` until completion.
-- The app validates URLs before sending them to the scraper.
+- The scraper can return async jobs.
+- The backend polls until completion.
+- The app validates URLs before sending them to Anakin.
 - `generatedJson` metadata is preserved on exported chunks when available.
+- Direct scrape non-auth failures can fall back to local fetch.
 
 ## Crawl
 
@@ -130,7 +156,7 @@ Important behavior:
 
 - The app submits a crawl job to Anakin.
 - The backend polls the crawl job until completion.
-- Crawl is limited in the MVP so demos remain fast.
+- Crawl is limited so demos remain fast.
 
 ## Search API
 
@@ -138,9 +164,10 @@ Used for Standard Topic Search.
 
 Important behavior:
 
-- The API expects a prompt-like query payload.
+- The API receives a prompt/query payload.
 - Search results may be nested, so the backend recursively extracts valid URLs.
-- Topic mode builds fast initial chunks from search titles, snippets, and source links.
+- Topic mode builds fast initial chunks from source titles, snippets, and links.
+- The top source may be scraped for richer context.
 
 ## Agentic Search
 
@@ -148,36 +175,42 @@ Used for optional Deep Research mode.
 
 Important behavior:
 
-- The app calls Agentic Search only when selected.
-- It extracts source URLs, citations, and a research summary when available.
-- If Agentic Search fails, the app falls back to Standard Search.
+- Agentic Search is called only when selected.
+- It may return async jobs.
+- It may time out.
+- If it fails, times out, or returns no valid URLs, the app falls back to Standard Search.
 
 ---
 
-## MVP Product Decisions
+## Product Decisions
 
-The MVP prioritizes speed and demo reliability.
+The current product prioritizes reliability, clarity, and demo speed.
 
 Key decisions:
 
-- Store chunks in memory.
-- Use keyword search instead of vector search.
-- Limit topic scraping to avoid long waits.
-- Seed topic knowledge bases from search results immediately.
-- Skip slow topic source scrapes instead of failing the entire build.
-- Keep URL mode as the full scrape path.
-- Add optional Crawl mode for broader URL coverage when judges want to see crawling.
+- Keep one active dataset instead of multi-project history.
+- Persist the active dataset to SQLite.
+- Keep search local and deterministic for now.
+- Use extractive ask instead of requiring another LLM dependency.
+- Add a low-confidence guard so unrelated questions do not get misleading answers.
+- Seed topic builds from discovered source metadata immediately.
+- Scrape only the top topic source by default.
+- Use local direct-URL fallback only for non-auth scrape failures.
+- Keep frontend static, maintainable, and framework-free.
+- Use local CSS instead of relying on a CDN for layout.
 
 ```mermaid
 flowchart LR
-  A[Demo reliability] --> B[Seed topic chunks from search results]
-  A --> C[Scrape only top topic source]
-  A --> D[Skip slow topic scrapes]
-  A --> E[Fallback from Agentic to Standard Search]
-  B --> F[Fast searchable KB]
-  C --> F
-  D --> F
-  E --> F
+  A[Demo reliability] --> B[SQLite persistence]
+  A --> C[Search fallback paths]
+  A --> D[Agentic fallback]
+  A --> E[Local URL fallback]
+  A --> F[Low-confidence ask guard]
+  B --> G[Product-ready MVP]
+  C --> G
+  D --> G
+  E --> G
+  F --> G
 ```
 
 ---
@@ -190,22 +223,26 @@ Web2Knowledge helps users:
 - Research topics without manually opening multiple sources.
 - Preserve source URLs for traceability.
 - Search extracted content locally.
+- Ask grounded questions over the active dataset.
 - Export structured JSON for downstream AI workflows.
+- Resume after restart because chunks are persisted.
 
 ---
 
 ## Future Opportunities
 
-- Semantic search with embeddings.
-- RAG chatbot over generated chunks.
-- Persistent project history.
+- Multiple saved projects/datasets.
+- True vector embeddings and semantic retrieval.
+- LLM-backed RAG chat.
 - Source scoring and deduplication.
+- Better source metadata persistence.
 - Scheduled refreshes for changing documentation.
-- Export templates for LangChain and LlamaIndex.
-- Vector database integrations.
+- Export templates for LangChain, LlamaIndex, Pinecone, Supabase, and LanceDB.
+- User authentication for hosted deployments.
+- Background queues for long crawls.
 
 ---
 
 ## Concept Summary
 
-Web2Knowledge turns messy public web content into structured, searchable, exportable knowledge. It uses Anakin for discovery and extraction while keeping the app architecture simple enough to understand, demo, and extend.
+Web2Knowledge turns messy public web content into structured, searchable, askable, exportable knowledge. It uses Anakin for discovery and extraction while keeping the local product layer simple enough to understand, demo, and extend.

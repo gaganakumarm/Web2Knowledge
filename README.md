@@ -1,8 +1,8 @@
 <h1 align="center">Web2Knowledge - AI Research Dataset Builder</h1>
 
-Web2Knowledge is a lightweight Node.js and Express app that turns a public URL or research topic into a searchable, AI-ready knowledge base using Anakin APIs.
+Web2Knowledge is a Node.js and Express product that turns a public URL or research topic into a persistent, searchable, AI-ready knowledge base using Anakin APIs, local fallback extraction, and SQLite storage.
 
-The app supports direct URL scraping, topic-based web research, optional Agentic Search, local keyword search, and downloadable JSON export for RAG or AI dataset workflows.
+The app supports URL scraping, limited site crawling, topic research, optional Agentic Search with fallback, ranked local search, extractive Q&A with citations, saved datasets, and JSON export for downstream AI/RAG workflows.
 
 ## Live Demo
 [Launch Web2Knowledge](https://web2knowledge.onrender.com/)
@@ -10,34 +10,23 @@ The app supports direct URL scraping, topic-based web research, optional Agentic
 
 --- 
 
-## What It Does
+## Current Features
 
-- Scrapes a public `http` or `https` URL with Anakin URL Scraper.
-- Optionally crawls a small site sample with Anakin Crawl for multi-page extraction.
-- Handles Anakin's async scrape jobs by polling until completion.
-- Accepts plain-language topics such as `Next.js routing`.
-- Uses Anakin Search API to discover relevant sources for topics.
-- Optionally uses Anakin Agentic Search for deeper research, summaries, and citations.
-- Falls back from Agentic Search to Standard Search if Agentic Search fails.
-- Chunks extracted or discovered content into a local in-memory knowledge base.
-- Searches generated chunks from the frontend.
-- Downloads the current dataset as `web2knowledge-dataset.json`.
-- Preserves Anakin `generatedJson` metadata on chunks when available.
-
----
-
-## Current MVP Features
-
-- URL mode for direct page scraping.
+- URL mode for direct public page extraction.
 - Site Crawl mode for limited multi-page extraction from a URL.
-- Topic Search mode for source discovery and fast research.
-- Deep Research mode using Anakin Agentic Search.
-- Research summary display when available.
-- Discovered source cards with citations when available.
-- Fast topic mode that seeds chunks from search results and only attempts a short full scrape for the top source.
-- Searchable chunk results with source links.
-- Downloadable AI dataset JSON export.
-- Deployment-ready config for Render-style hosting.
+- Topic mode using Anakin Search API for source discovery.
+- Deep Research mode using Anakin Agentic Search, with automatic Standard Search fallback.
+- Local URL fetch fallback when Anakin URL scraping has a transient non-auth failure.
+- Markdown-aware chunking by headings and paragraphs.
+- SQLite persistence in `data/web2knowledge.sqlite`.
+- Saved dataset hydration on page load.
+- Ranked local search with stopword filtering and light token normalization.
+- Ask endpoint that returns extractive answers with citations.
+- Low-confidence guard for unrelated questions.
+- Clear Dataset action.
+- Downloadable JSON export.
+- Product-style UI with local CSS, tabs, guide, workspace, source cards, and ask panel.
+- Deployment-ready Render config.
 
 ---
 
@@ -45,25 +34,30 @@ The app supports direct URL scraping, topic-based web research, optional Agentic
 
 ```mermaid
 flowchart TD
-  A[User enters URL or topic] --> B{Valid http/https URL?}
-  B -->|Yes| C[URL Mode]
-  B -->|No| D[Topic Mode]
-  D --> E{Research Mode}
-  E -->|Standard| F[Anakin Search API]
-  E -->|Deep Research| G[Anakin Agentic Search API]
-  G -->|Fails or no URLs| F
-  C --> H[Anakin URL Scraper]
-  F --> I[Discovered Sources]
-  G --> I
-  I --> J[Seed KB from summaries/snippets]
-  I --> K[Optional top-source scrape]
-  H --> L[Poll async scrape job]
-  K --> L
-  L --> M[Normalize content]
-  J --> N[Chunk Knowledge Base]
-  M --> N
-  N --> O[Search chunks]
-  N --> P[Download AI Dataset JSON]
+  A[User enters URL or topic] --> B{URL or Topic mode?}
+  B -->|URL| C{Extraction mode}
+  C -->|Single| D[Anakin URL Scraper]
+  C -->|Crawl| E[Anakin Crawl]
+  D -->|Non-auth failure| F[Local fetch fallback]
+  B -->|Topic| G{Research mode}
+  G -->|Standard| H[Anakin Search API]
+  G -->|Deep| I[Anakin Agentic Search]
+  I -->|Timeout/failure/no URLs| H
+  H --> J[Normalize discovered sources]
+  I --> J
+  J --> K[Seed source chunks]
+  J --> L[Optional top-source scrape]
+  D --> M[Normalize extracted content]
+  E --> M
+  F --> M
+  L --> M
+  M --> N[Markdown-aware chunking]
+  K --> O[(SQLite-backed active dataset)]
+  N --> O
+  O --> P[Ranked Search]
+  O --> Q[Ask with citations]
+  O --> R[Export JSON]
+  O --> S[Reload saved dataset on page load]
 ```
 
 ---
@@ -76,18 +70,22 @@ flowchart TD
 - Express.js
 - Axios
 - dotenv
+- Node built-in SQLite via `node:sqlite`
 
 ## Frontend
 
 - Plain HTML
-- Tailwind CSS CDN
-- Vanilla JavaScript
+- Local CSS in `public/styles.css`
+- Vanilla JavaScript in `public/app.js`
+- No frontend build step
+- No Tailwind CDN dependency
 
-## Anakin APIs
+## External APIs
 
-- URL Scraper
-- Search API
-- Agentic Search API
+- Anakin URL Scraper
+- Anakin Crawl
+- Anakin Search API
+- Anakin Agentic Search API
 
 ---
 
@@ -96,7 +94,7 @@ flowchart TD
 1. Install dependencies:
 
 ```powershell
-npm install
+npm.cmd install
 ```
 
 2. Create `.env`:
@@ -106,10 +104,10 @@ ANAKIN_API_KEY=your_active_anakin_api_key
 PORT=3000
 ```
 
-3. Start the dev server:
+3. Start the app:
 
 ```powershell
-npm run dev
+npm.cmd start
 ```
 
 4. Open:
@@ -118,115 +116,154 @@ npm run dev
 http://localhost:3000
 ```
 
+For development with reload:
+
+```powershell
+npm.cmd run dev
+```
+
 ---
 
 ## Tests
 
-Run the local test suite:
+Run:
 
 ```powershell
-npm test
+npm.cmd test
 ```
 
-The tests use Node's built-in test runner and do not call Anakin live. They cover:
+Current coverage: `23` tests.
+
+The automated suite does not call Anakin live. It covers:
 
 - Homepage route.
+- Static frontend assets.
 - Health route.
-- Export download headers and JSON shape.
+- Export headers and JSON shape.
 - Exported chunk metadata.
+- Dataset clearing.
+- SQLite persistence.
 - Missing input validation.
 - Missing topic validation.
 - Search endpoint behavior.
+- Ranked token matching.
+- Ask endpoint validation.
+- Ask answers with citations.
+- Guarding against unrelated questions.
 - URL validation.
-- Chunking.
-- Search-result normalization.
+- Markdown-aware chunking.
+- Search result normalization.
 - Citation extraction.
 - Research summary extraction.
 
 ---
 
-## Usage
+## Manual Real-World Test Flow
 
-## Direct URL
+## URL Build
 
-Enter a URL:
-
-```text
-https://tailwindcss.com/docs
-```
-
-The backend calls Anakin URL Scraper, polls the async job, extracts Markdown, chunks it, and stores it in memory.
-
-Select `Site Crawl` to use Anakin Crawl for a small multi-page sample from the same URL.
-
-## Topic Search
-
-Enter a topic:
+1. Click `Clear Dataset`.
+2. Enter:
 
 ```text
-Next.js routing
+https://developer.mozilla.org/en-US/docs/Web/JavaScript
 ```
 
-The backend uses Anakin Search API to discover sources, validates `http` and `https` URLs, creates initial chunks from search snippets, and optionally scrapes the top source for richer content.
-
-## Deep Research
-
-Select:
+3. Select:
 
 ```text
-Deep Research (Agentic)
+URL
+Single
+Standard
 ```
 
-The backend tries Anakin Agentic Search first, extracts summaries, citations, and source URLs, then builds the knowledge base. If Agentic Search fails or returns no valid URLs, the app falls back to Standard Search automatically.
-
----
-
-## Deployment
-
-The repo is ready for public hosting.
-
-## Render
-
-1. Push this project to GitHub.
-2. Create a new Render Web Service from the GitHub repo.
-3. Use:
+4. Click `Build Knowledge Base`.
+5. Search:
 
 ```text
-Build Command: npm install
-Start Command: npm start
+javascript
 ```
 
-4. Add environment variable:
+6. Ask:
 
 ```text
-ANAKIN_API_KEY=your_active_anakin_api_key
+What is JavaScript?
 ```
 
-The included `render.yaml` can also be used as a Render blueprint.
+Expected:
+
+- Build succeeds.
+- Chunks are created.
+- Search returns results.
+- Ask returns an answer with citations.
+
+## Topic Build
+
+1. Click `Clear Dataset`.
+2. Enter:
+
+```text
+REST API design best practices
+```
+
+3. Select:
+
+```text
+Topic
+Standard
+```
+
+4. Click `Build Knowledge Base`.
+5. Search:
+
+```text
+api
+```
+
+6. Ask:
+
+```text
+What are REST API best practices?
+```
+
+Expected:
+
+- Sources are discovered.
+- Chunks are created.
+- Ask returns citations from the active dataset.
+
+## Negative Ask Check
+
+After building a JavaScript dataset, ask:
+
+```text
+What are AI agents?
+```
+
+Expected:
+
+```text
+I could not find matching context in the current knowledge base.
+```
 
 ---
 
 ## API Endpoints
 
-```mermaid
-flowchart LR
-  UI[Frontend] --> Build[POST /api/build]
-  UI --> Topic[POST /api/topic-build]
-  UI --> Search[GET /api/search]
-  UI --> Export[GET /api/export]
-  Build --> KB[(In-memory Knowledge Base)]
-  Topic --> KB
-  Search --> KB
-  Export --> JSON[web2knowledge-dataset.json]
-```
-
 ## `GET /health`
 
-Returns basic project health.
+Returns service status.
+
+```json
+{
+  "status": "ok",
+  "project": "Web2Knowledge"
+}
+```
 
 ## `POST /api/build`
 
-Builds a knowledge base from a URL. If plain text is provided, the backend auto-routes it to topic research.
+Builds the active dataset from a URL. If the input is not a URL, the server routes it to topic research.
 
 Payload:
 
@@ -234,44 +271,109 @@ Payload:
 {
   "input": "https://tailwindcss.com/docs",
   "mode": "url",
+  "extractionMode": "scrape",
+  "researchMode": "standard"
+}
+```
+
+For crawl:
+
+```json
+{
+  "input": "https://tailwindcss.com/docs",
+  "mode": "url",
+  "extractionMode": "crawl",
   "researchMode": "standard"
 }
 ```
 
 ## `POST /api/topic-build`
 
-Builds a knowledge base from a topic using Standard Search or Agentic Search.
+Builds the active dataset from a topic.
 
 Payload:
 
 ```json
 {
-  "input": "Next.js routing",
+  "input": "AI agents for software development",
+  "mode": "topic",
+  "researchMode": "standard"
+}
+```
+
+For Deep Research:
+
+```json
+{
+  "input": "AI agents for software development",
   "mode": "topic",
   "researchMode": "agentic"
 }
 ```
 
-## `GET /api/search?q=tailwind`
+Agentic Search may time out and fall back to Standard Search. This is expected behavior.
 
-Searches the in-memory knowledge base.
+## `GET /api/search`
+
+Returns the current saved chunks when no query is provided:
+
+```text
+/api/search
+```
+
+Searches ranked chunks when `q` is provided:
+
+```text
+/api/search?q=installation
+```
+
+## `POST /api/ask`
+
+Answers a question from the active dataset using retrieved chunk context.
+
+Payload:
+
+```json
+{
+  "question": "What is Tailwind CSS?"
+}
+```
+
+Response includes:
+
+- `answer`
+- `citations`
+- `totalContextChunks`
 
 ## `GET /api/export`
 
-Downloads the current dataset as:
+Downloads the active dataset as:
 
 ```text
 web2knowledge-dataset.json
 ```
 
-Export structure:
+Shape:
 
 ```json
 {
   "project": "Web2Knowledge",
-  "generatedAt": "2026-05-10T00:00:00.000Z",
+  "generatedAt": "2026-05-16T00:00:00.000Z",
   "totalChunks": 0,
   "data": []
+}
+```
+
+## `DELETE /api/dataset`
+
+Clears the active dataset from memory and SQLite.
+
+Response:
+
+```json
+{
+  "success": true,
+  "totalChunks": 0
 }
 ```
 
@@ -279,7 +381,7 @@ Export structure:
 
 ## Data Model
 
-Each chunk is stored in memory as:
+Each chunk is stored as:
 
 ```json
 {
@@ -292,26 +394,82 @@ Each chunk is stored in memory as:
 }
 ```
 
+Chunks are held in memory while the server runs and saved to SQLite at:
+
+```text
+data/web2knowledge.sqlite
+```
+
+The SQLite database is ignored by git.
+
+---
+
+## Frontend Structure
+
+```text
+public/
+  index.html    App shell and semantic markup
+  styles.css    Local product styling
+  app.js        Browser state, API calls, rendering
+```
+
+The UI includes:
+
+- Top product header.
+- Build/Workspace/Ask/Guide tabs.
+- Dataset stats.
+- Build sidebar.
+- Ask panel.
+- Status/progress panel.
+- Workspace tabs for Results, Sources, and Summary.
+- User Guide with real-world examples.
+
 ---
 
 ## Reliability Notes
 
-- URL scraping is async and uses polling.
-- Crawl jobs are async and use polling.
-- Topic input is never sent directly to the URL Scraper.
-- Invalid URLs are filtered before scraping.
-- Topic mode limits valid discovered sources to keep demos fast.
-- Slow topic source scrapes are skipped instead of failing the full build.
-- Agentic Search gracefully falls back to Standard Search.
-- Site Crawl is optional so demos can choose speed or broader extraction.
+- URL scraping and crawl jobs are async and use polling.
+- Agentic Search jobs are async and use polling.
+- Agentic Search can fall back to Standard Search.
+- Topic mode seeds chunks from discovered source metadata before optional scraping.
+- Topic source scraping uses a short timeout so builds stay responsive.
+- Direct URL builds can fall back to local fetch on non-auth Anakin scrape failures.
+- Auth failures do not use local fallback, so bad API keys are visible.
+- Ask uses a low-confidence guard to avoid answering unrelated questions from weak matches.
+- Saved chunks reload on page load.
+
+---
+
+## Deployment
+
+## Render
+
+1. Push the project to GitHub.
+2. Create a Render Web Service.
+3. Use:
+
+```text
+Build Command: npm install
+Start Command: npm start
+```
+
+4. Add:
+
+```text
+ANAKIN_API_KEY=your_active_anakin_api_key
+```
+
+The included `render.yaml` can be used as a Render blueprint.
 
 ---
 
 ## Future Scope
 
-- Vector embeddings and semantic search.
-- RAG chat interface.
-- Dataset persistence.
+- Project history with multiple saved datasets.
+- Real vector embeddings and semantic search.
+- LLM-backed RAG chat.
+- Background queue for long crawls.
+- Source quality scoring.
+- Source deduplication.
 - Scheduled refreshes.
-- Source-level quality scoring.
-- Export formats for LangChain, LlamaIndex, Pinecone, Supabase, or LanceDB.
+- Export presets for LangChain, LlamaIndex, Pinecone, Supabase, and LanceDB.
